@@ -1,94 +1,179 @@
+import cv2
+import time
+
 class InfoHub:
     def __init__(self):
-        # Data: Specializations and their page counts
-        self.specializations = {
-            "CS": {"name": "Computer Science", "pages": 3},
-            "MKT": {"name": "Marketing", "pages": 2},
-            "ENG": {"name": "Engineering", "pages": 4},
-            "ART": {"name": "Arts & Design", "pages": 2}
+        self.mode = "SELECTION"  # Modes: "SELECTION", "CONTENT"
+        
+        # Sample Data
+        self.faculties = {
+            "AUTOMATICS": ["Computer Science", "Robotics", "Systems Engineering"],
+            "ELECTRICAL": ["Electronics", "Telecommunications", "Power Eng."],
+            "MECHANICAL": ["Automotive", "Mechatronics", "Industrial Design"]
         }
         
-        # Layout for buttons (Selection Mode)
+        # Layout for Faculty Buttons (Normalized: x, y, w, h)
         self.buttons = {
-            "CS": (0.1, 0.2, 0.35, 0.3),  # Top-Left
-            "MKT": (0.55, 0.2, 0.35, 0.3), # Top-Right
-            "ENG": (0.1, 0.6, 0.35, 0.3),  # Bottom-Left
-            "ART": (0.55, 0.6, 0.35, 0.3)  # Bottom-Right
+            "AUTOMATICS": (0.1, 0.3, 0.25, 0.2),
+            "ELECTRICAL": (0.375, 0.3, 0.25, 0.2),
+            "MECHANICAL": (0.65, 0.3, 0.25, 0.2)
         }
         
         # State
-        self.active_spec = None   # None = Selection Mode, "CS" = Viewing CS
-        self.current_page = 0
-        self.dwell_timer = 0
-        self.hovered_btn = None
-        self.DWELL_THRESHOLD = 1.5
+        self.active_faculty = None
+        self.page_index = 0
+        self.hovered = None
+        self.hover_start = 0
+        self.selection_progress = 0.0
+        self.SELECTION_TIME = 1.5
+        self.last_nav_time = 0
 
-    def update(self, cursor_x, cursor_y, gesture):
+    def update(self, cx, cy, gesture):
         """
-        Inputs: Cursor position (0-1) and Gesture ("CLICK", "SWIPE_LEFT", etc)
+        Handle hover selection and swipe navigation.
+        Returns 'BACK_TO_MENU' if needed.
         """
-        
-        # MODE 1: SELECTING A SPECIALIZATION
-        if self.active_spec is None:
-            return self._update_selection_mode(cursor_x, cursor_y)
-
-        # MODE 2: VIEWING PAGES (Swipe Logic)
-        else:
-            return self._update_detail_mode(gesture)
-
-    def _update_selection_mode(self, x, y):
-        # Check collision
-        hit = None
-        for key, (bx, by, bw, bh) in self.buttons.items():
-            if bx < x < bx+bw and by < y < by+bh:
-                hit = key
-                break
-        
-        # Handle Dwell
-        if hit and hit == self.hovered_btn:
-            self.dwell_timer += 1 # In real app use time.time()
-            # Simple frame counter for test (approx 45 frames = 1.5s)
-            if self.dwell_timer > 45: 
-                self.active_spec = hit
-                self.current_page = 0
-                self.dwell_timer = 0
-                return "OPEN_DETAIL"
-        else:
-            self.hovered_btn = hit
-            self.dwell_timer = 0
+        # --- Mode: SELECTION ---
+        if self.mode == "SELECTION":
+            # Check for Back Gesture (e.g., if gesture is 'SWIPE_DOWN' or similar)
+            # For now, we rely on hover logic to select.
             
-        return None
-
-    def _update_detail_mode(self, gesture):
-        if not gesture:
-            return None
+            curr_hover = None
+            for name, (bx, by, bw, bh) in self.buttons.items():
+                if bx < cx < bx + bw and by < cy < by + bh:
+                    curr_hover = name
+                    break
             
-        max_pages = self.specializations[self.active_spec]["pages"]
-        
-        if gesture == "SWIPE_LEFT":
-            # Next Page
-            if self.current_page < max_pages - 1:
-                self.current_page += 1
-                return "NEXT_PAGE"
-                
-        elif gesture == "SWIPE_RIGHT":
-            # Previous Page
-            if self.current_page > 0:
-                self.current_page -= 1
-                return "PREV_PAGE"
+            if curr_hover:
+                if self.hovered != curr_hover:
+                    self.hovered = curr_hover
+                    self.hover_start = time.time()
+                    self.selection_progress = 0.0
+                else:
+                    elapsed = time.time() - self.hover_start
+                    self.selection_progress = min(elapsed / self.SELECTION_TIME, 1.0)
+                    
+                    if elapsed >= self.SELECTION_TIME:
+                        self.active_faculty = curr_hover
+                        self.mode = "CONTENT"
+                        self.page_index = 0
+                        self.hovered = None
+                        self.selection_progress = 0.0
             else:
-                # Swipe Right on first page = Go Back to Menu
-                self.active_spec = None
-                return "BACK_TO_MENU"
+                self.hovered = None
+                self.selection_progress = 0.0
+
+        # --- Mode: CONTENT ---
+        elif self.mode == "CONTENT":
+            # Navigation Debounce
+            if time.time() - self.last_nav_time > 1.0:
+                if gesture == "SWIPE_LEFT":
+                    # Next Page
+                    specs = self.faculties[self.active_faculty]
+                    if self.page_index < len(specs) - 1:
+                        self.page_index += 1
+                        self.last_nav_time = time.time()
                 
+                elif gesture == "SWIPE_RIGHT":
+                    # Prev Page or Back
+                    if self.page_index > 0:
+                        self.page_index -= 1
+                        self.last_nav_time = time.time()
+                    else:
+                        self.mode = "SELECTION"
+                        self.last_nav_time = time.time()
+                        
+                elif gesture == "OPEN_PALM": 
+                    # Optional: Quick exit gesture
+                    return "BACK_TO_MENU"
+
         return None
 
     def get_ui_data(self):
+        """Legacy helper, can be removed if strictly using draw()."""
         return {
-            "mode": "SELECTION" if self.active_spec is None else "DETAIL",
-            "active_spec": self.active_spec,
-            "page": self.current_page + 1, # Display 1-indexed
+            "mode": self.mode,
             "buttons": self.buttons,
-            "hovered": self.hovered_btn,
-            "progress": min(self.dwell_timer / 45.0, 1.0)
+            "hovered": self.hovered,
+            "progress": self.selection_progress,
+            "active_spec": self.faculties[self.active_faculty][self.page_index] if self.active_faculty else "",
+            "page": self.page_index + 1
         }
+
+    def draw(self, frame):
+        """
+        Draws the InfoHub UI.
+        """
+        h, w, _ = frame.shape
+        
+        # Background
+        cv2.rectangle(frame, (0, 0), (w, h), (20, 20, 25), -1)
+        
+        if self.mode == "SELECTION":
+            # Header
+            cv2.putText(frame, "SELECT A FACULTY", (50, 100), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 2)
+            cv2.line(frame, (50, 120), (450, 120), (0, 255, 255), 2)
+            
+            # Draw Buttons
+            for name, (bx, by, bw, bh) in self.buttons.items():
+                x1, y1 = int(bx * w), int(by * h)
+                x2, y2 = int((bx + bw) * w), int((by + bh) * h)
+                
+                is_hovered = (self.hovered == name)
+                
+                # Style
+                color = (60, 60, 70)
+                border = (200, 200, 200)
+                if is_hovered:
+                    color = (100, 50, 20)
+                    border = (0, 200, 255)
+                
+                # Draw Box
+                cv2.rectangle(frame, (x1, y1), (x2, y2), color, -1)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), border, 2 if not is_hovered else 3)
+                
+                # Draw Progress
+                if is_hovered:
+                    bar_w = int((x2 - x1) * self.selection_progress)
+                    cv2.rectangle(frame, (x1, y2 - 10), (x1 + bar_w, y2), (0, 255, 0), -1)
+                
+                # Text
+                text_size = cv2.getTextSize(name, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)[0]
+                tx = x1 + (x2 - x1 - text_size[0]) // 2
+                ty = y1 + (y2 - y1 + text_size[1]) // 2
+                cv2.putText(frame, name, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (255, 255, 255), 2)
+
+        elif self.mode == "CONTENT":
+            # Data
+            faculty = self.active_faculty
+            specs = self.faculties[faculty]
+            current_spec = specs[self.page_index]
+            
+            # Card Panel
+            px1, py1 = 100, 100
+            px2, py2 = w - 100, h - 100
+            
+            overlay = frame.copy()
+            cv2.rectangle(overlay, (px1, py1), (px2, py2), (40, 40, 45), -1)
+            cv2.addWeighted(overlay, 0.9, frame, 0.1, 0, frame)
+            cv2.rectangle(frame, (px1, py1), (px2, py2), (0, 255, 255), 2)
+            
+            # Text Content
+            cv2.putText(frame, f"FACULTY: {faculty}", (px1 + 50, py1 + 80), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.0, (150, 150, 150), 2)
+            
+            cv2.putText(frame, current_spec, (px1 + 50, py1 + 180), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 2.0, (255, 255, 255), 4)
+            
+            # Pagination
+            page_str = f"Specialization {self.page_index + 1} / {len(specs)}"
+            cv2.putText(frame, page_str, (px1 + 50, py2 - 50), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)
+
+            # Instructions
+            hint = "Swipe LEFT for next  |  Swipe RIGHT to go back"
+            ts = cv2.getTextSize(hint, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 1)[0]
+            cv2.putText(frame, hint, (w // 2 - ts[0] // 2, py2 + 50), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 0.7, (200, 200, 200), 1)
+
+        return frame
