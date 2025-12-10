@@ -1,49 +1,55 @@
 import cv2
+import sys
 
-# --- Setări ---
-# Indexul camerei: 0 este prima cameră (USB sau CSI)
+# ----------------------------------------------------
+# 1. FIX: Rezolvarea erorilor de GUI (Qt/Wayland) și inițializarea ferestrei
+# ----------------------------------------------------
+# Creează explicit fereastra înainte de bucla principală.
+WINDOW_NAME = 'Test Camera OpenCV (Apasa Q sau ESC)'
+cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_AUTOSIZE) 
+
+# Setează indexul camerei (de obicei 0 sau 1 pe Raspberry Pi)
 CAMERA_INDEX = 0 
-WINDOW_NAME = 'MediaPipe/OpenCV Camera Test'
 
-print(f"Incepere test CU CAMERA INDEX = {CAMERA_INDEX}")
+# ----------------------------------------------------
+# 2. FIX: Stabilizarea fluxului video (CAP_V4L2)
+# ----------------------------------------------------
+# Foloseste backend-ul V4L2 pentru a îmbunătăți compatibilitatea cu fluxul video
+cap = cv2.VideoCapture(CAMERA_INDEX, cv2.CAP_V4L2) 
 
-# Inițializează obiectul de captură video
-cap = cv2.VideoCapture(CAMERA_INDEX) 
+print(f"Începere test cu CAMERA INDEX = {CAMERA_INDEX}")
 
 if not cap.isOpened():
-    print(f"Eroare: Nu s-a putut deschide camera la indexul {CAMERA_INDEX}. Încercați să schimbați indexul (0, 1, 2...).")
-else:
-    print(f"SUCCESS: Camera deschisa la indexul {CAMERA_INDEX}. Apăsați 'ESC' sau 'q' pentru a ieși.")
-    
-    # Creează fereastra în prealabil (pentru a preveni probleme de Null pointer)
-    cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_AUTOSIZE)
+    print(f"Eroare: Nu s-a putut deschide camera la indexul {CAMERA_INDEX}.")
+    print("Încercați să schimbați indexul (0, 1, 2,...) sau să reconectați camera.")
+    sys.exit()
 
-    while True:
-        # 1. Citirea cadrului
+print(f"SUCCESS: Camera deschisa la indexul {CAMERA_INDEX}. Apăsați 'q' sau 'ESC' pentru a ieși.")
+
+try:
+    while cap.isOpened():
         ret, frame = cap.read()
         
         if not ret:
-            print("Eroare la citirea cadrului. Sursa video a fost pierdută.")
+            print("Eroare la citirea cadrului. Sursa video a fost pierdută (sau capăt de fișier). Ieșire.")
             break
-            
-        # 2. Afișează imaginea
-        # Fereastra a fost creată deja cu cv2.namedWindow()
+        
+        # ----------------------------------------------------
+        # 3. Afișează imaginea
+        # ----------------------------------------------------
         cv2.imshow(WINDOW_NAME, frame)
         
-        # 3. Verifică comanda de ieșire
-        # waitKey(1) asigură că fereastra este actualizată
-        key = cv2.waitKey(1) & 0xFF
+        # Așteaptă 5ms. Ieșire la apăsarea tastei 'q' sau 'ESC' (cod ASCII 27)
+        key = cv2.waitKey(5) & 0xFF 
         
-        # Ieșire la apăsarea tastei 'q' sau 'ESC' (27)
         if key == ord('q') or key == 27:
             break
 
-    # Eliberează resursele
+except cv2.error as e:
+    print(f"Eroare OpenCV neașteptată: {e}")
+    
+finally:
+    # Eliberează resursele camerei și închide toate ferestrele
     cap.release()
     cv2.destroyAllWindows()
-
-# Sfat: Dacă folosești un Raspberry Pi 4/5, poți adăuga
-# cap.set(cv2.CAP_PROP_FOURCC, cv2.VideoWriter_fourcc('M', 'J', 'P', 'G'))
-# cap.set(cv2.CAP_PROP_FRAME_WIDTH, 640)
-# cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
-# chiar înainte de while True pentru a forța o rezoluție și a îmbunătăți performanța.
+    print("Test încheiat. Resurse eliberate.")
