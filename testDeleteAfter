@@ -1,0 +1,90 @@
+import cv2
+import mediapipe as mp
+import time
+
+# --- CONFIGURATIE ---
+# Incepe cu 0. Daca esueaza, incearca 1, 2, etc. (Indexul corect al camerei)
+CAMERA_INDEX = 0 
+WINDOW_NAME = "MediaPipe Hands Test"
+
+# Initializare MediaPipe Hands
+mp_hands = mp.solutions.hands
+hands = mp_hands.Hands(
+    model_complexity=0,
+    min_detection_confidence=0.5,
+    min_tracking_confidence=0.5
+)
+mp_drawing = mp.solutions.drawing_utils
+
+def run_test():
+    # 1. DESCHIDE CAMERA
+    cap = cv2.VideoCapture(CAMERA_INDEX)
+
+    if not cap.isOpened():
+        print(f"FATAL ERROR: Nu s-a putut deschide camera la indexul {CAMERA_INDEX}. Incearca sa schimbi indexul.")
+        return
+
+    print(f"SUCCESS: Camera deschisa la indexul {CAMERA_INDEX}. Apasati 'q' pentru a iesi.")
+
+    # 2. BUCLA PRINCIPALA
+    while cap.isOpened():
+        success, image = cap.read()
+        
+        # In caz de esec la citirea cadrului (camera deconectata, etc.)
+        if not success:
+            print("Avertisment: Nu s-a putut citi cadrul. Iesire.")
+            break
+
+        # Oglindeste imaginea pentru a fi mai intuitiv
+        image = cv2.flip(image, 1)
+
+        # Convertește BGR în RGB pentru MediaPipe
+        image.flags.writeable = False
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
+        
+        # Procesare MediaPipe
+        results = hands.process(image)
+
+        # Convertește înapoi la BGR pentru afișare
+        image.flags.writeable = True
+        image = cv2.cvtColor(image, cv2.COLOR_RGB2BGR)
+
+        # Desenează reperele mâinilor
+        if results.multi_hand_landmarks:
+            for hand_landmarks in results.multi_hand_landmarks:
+                mp_drawing.draw_landmarks(
+                    image,
+                    hand_landmarks,
+                    mp_hands.HAND_CONNECTIONS,
+                    mp_drawing.DrawingSpec(color=(0, 255, 0), thickness=2, circle_radius=4), # Culoare verde
+                    mp_drawing.DrawingSpec(color=(0, 0, 255), thickness=2, circle_radius=2)  # Culoare roșie
+                )
+
+        # 3. AFIȘEAZĂ
+        cv2.imshow(WINDOW_NAME, image)
+
+        # Ieșire la apăsarea tastei 'q'
+        if cv2.waitKey(5) & 0xFF == ord('q'):
+            break
+
+    # 4. CURATARE
+    cap.release()
+    cv2.destroyAllWindows()
+    hands.close()
+
+if __name__ == '__main__':
+    # Ruleaza testul de 3 ori, schimband indexul, daca esueaza prima oara
+    for i in range(3):
+        print(f"\n--- Incepere test cu CAMERA_INDEX = {i} ---")
+        CAMERA_INDEX = i
+        run_test()
+        
+        # Daca a reusit si ruleaza (nu a returnat imediat), nu mai continua testul
+        if cv2.getWindowProperty(WINDOW_NAME, cv2.WND_PROP_VISIBLE) >= 1:
+            # Daca fereastra este vizibila, inseamna ca ruleaza.
+            # Aici logica se complica putin pentru ca nu putem sti daca utilizatorul
+            # a apasat 'q', asa ca ne bazam pe outputul terminalului.
+            print("APLICATIA A RULAT. DACA AI VAZUT IMAGINEA, PROBLEMA ESTE REZOLVATA.")
+            break
+        
+        time.sleep(1) # Pauza scurta inainte de a incerca urmatorul index
