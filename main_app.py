@@ -62,7 +62,12 @@ def main():
         
         # --- GESTURE PROCESSING ---
         gesture_data = engine.process_frame(raw_frame)
-        if gesture_data["cursor_detected"]:
+        
+        # FIX: Check if a face is present using the existing saver instance
+        is_face_present = saver.is_face_present(display_frame) 
+
+        # Reset timer if EITHER hand is detected OR face is detected
+        if gesture_data["cursor_detected"] or is_face_present:
             last_activity_time = time.time()
 
         # --- STATE MACHINE ---
