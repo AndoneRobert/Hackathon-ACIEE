@@ -25,6 +25,21 @@ def main():
     SCREEN_W, SCREEN_H = get_screen_resolution()
     
     cap = cv2.VideoCapture(0)
+
+    try:
+        # Load image (unchanged)
+        logo_img = cv2.imread("assets/images/logo_ugal.png", cv2.IMREAD_UNCHANGED)
+        
+        # Resize it to be a reasonable size (e.g., 200 pixels wide)
+        # We calculate height automatically to keep aspect ratio
+        target_width = 200
+        aspect_ratio = logo_img.shape[0] / logo_img.shape[1]
+        target_height = int(target_width * aspect_ratio)
+        logo_img = cv2.resize(logo_img, (target_width, target_height))
+        
+    except Exception as e:
+        print(f"Warning: Logo not found. {e}")
+        logo_img = None 
     
     window_name = "University AI Kiosk"
     cv2.namedWindow(window_name, cv2.WINDOW_NORMAL)
@@ -145,7 +160,7 @@ def main():
 #      VISUAL RENDERING FUNCTIONS
 # ==========================================
 
-def draw_screensaver_ui(frame, data):
+def draw_screensaver_ui(frame, data, logo_img=None):
     h, w, _ = frame.shape
     overlay = frame.copy()
     cv2.rectangle(overlay, (0, 0), (w, h), (20, 10, 40), -1) 
@@ -161,6 +176,32 @@ def draw_screensaver_ui(frame, data):
     pulse = data["pulse"]
     glow_intensity = int(20 * pulse)
     center_y = h // 2
+
+    if logo_img is not None:
+        # Position: Top Center
+        ly, lx, lc = logo_img.shape
+        x_pos = (w // 2) - (lx // 2)
+        y_pos = 50 # 50 pixels from top
+
+        # Overlay logic (handles transparency)
+        # We select the region of interest (ROI) on the frame
+        roi = frame[y_pos:y_pos+ly, x_pos:x_pos+lx]
+
+        if lc == 4: # If PNG has alpha
+            b, g, r, a = cv2.split(logo_img)
+            overlay_color = cv2.merge((b, g, r))
+            mask = cv2.merge((a, a, a))
+            
+            # Black-out the area behind the logo in ROI
+            img1_bg = cv2.bitwise_and(roi.copy(), cv2.bitwise_not(mask))
+            # Take only the logo region from logo image
+            img2_fg = cv2.bitwise_and(overlay_color, mask)
+            
+            # Put logo in ROI and modify the main frame
+            frame[y_pos:y_pos+ly, x_pos:x_pos+lx] = cv2.add(img1_bg, img2_fg)
+        else:
+            # If no transparency, just copy it
+            frame[y_pos:y_pos+ly, x_pos:x_pos+lx] = logo_img
     
     cv2.rectangle(frame, (100 - glow_intensity, center_y - 80 - glow_intensity), 
                          (w - 100 + glow_intensity, center_y + 80 + glow_intensity), 
