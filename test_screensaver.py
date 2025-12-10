@@ -12,7 +12,8 @@ def draw_screensaver(frame, data):
     
     # 2. Draw "Promotional Text"
     # Animate transparency or color based on frame count
-    alpha = (np.sin(data["anim_frame"] * 0.1) + 1) / 2 # 0.0 to 1.0
+    anim_frame = data.get("anim_frame", 0)
+    alpha = (np.sin(anim_frame * 0.1) + 1) / 2 # 0.0 to 1.0
     text_color = (int(255 * alpha), int(255 * alpha), 255)
     
     cv2.putText(frame, "WELCOME TO THE UNIVERSITY", (50, h//2 - 50), 
@@ -21,8 +22,8 @@ def draw_screensaver(frame, data):
                cv2.FONT_HERSHEY_SIMPLEX, 1, (200, 200, 200), 2)
 
     # 3. Draw "Waking Up" Progress
-    if data["waking_progress"] > 0:
-        bar_w = int(w * data["waking_progress"])
+    if data.get("waking_progress", 0) > 0:
+        bar_w = int(w * data.get("waking_progress", 0))
         cv2.rectangle(frame, (0, h-20), (bar_w, h), (0, 255, 255), -1)
         cv2.putText(frame, "DETECTING USER...", (10, h-30), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 255), 2)

@@ -27,6 +27,8 @@ class Screensaver:
             ])
             
         self.logo_pulse = 0.0
+        # Animation frame counter for UI animations
+        self.anim_frame = 0
 
     def is_face_present(self, frame):
         """
@@ -72,11 +74,17 @@ class Screensaver:
                 p[0] = random.randint(0, w)
 
         self.logo_pulse += 0.1
+        # advance animation frame counter
+        self.anim_frame += 1
         return None
 
     def get_ui_data(self):
+        # compute waking progress, clamped 0..1
+        raw_progress = 0 if self.face_detected_time == 0 else (time.time() - self.face_detected_time) / self.WAKE_THRESHOLD
+        waking_progress = max(0.0, min(1.0, raw_progress))
         return {
-            "waking_progress": 0 if self.face_detected_time == 0 else (time.time() - self.face_detected_time) / self.WAKE_THRESHOLD,
+            "waking_progress": waking_progress,
             "particles": self.particles,
-            "pulse": abs(np.sin(self.logo_pulse))
+            "pulse": abs(np.sin(self.logo_pulse)),
+            "anim_frame": self.anim_frame,
         }

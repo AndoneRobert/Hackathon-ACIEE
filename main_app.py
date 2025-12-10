@@ -126,7 +126,7 @@ def main():
             if gesture_data["cursor_detected"]:
                 game.update(gesture_data["x"], gesture_data["y"])  
             game_data = game.get_current_data()
-            if game_data["game_over"]:
+            if game_data.get("state") == "GAMEOVER":
                 current_state = STATE_MENU  
             display_frame = draw_game_ui(display_frame, game_data, gesture_data)
 
@@ -280,7 +280,7 @@ def draw_menu_ui(frame, menu, data):
 
 def draw_game_ui(frame, game_data, gesture_data):
     h, w, _ = frame.shape
-    if game_data["game_over"]:
+    if game_data.get("state") == "GAMEOVER":
         cv2.putText(frame, "GAME OVER", (w//2 - 150, h//2), cv2.FONT_HERSHEY_SIMPLEX, 2, (0, 0, 255), 4)
         cv2.putText(frame, f"Score: {game_data.get('score', 0)}", (w//2 - 100, h//2 + 80), cv2.FONT_HERSHEY_SIMPLEX, 1, (255,255,255), 2)
         return frame
