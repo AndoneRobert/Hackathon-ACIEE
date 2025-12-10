@@ -1,40 +1,28 @@
 import time
+import cv2
 
 class QuizGame:
     def __init__(self):
         # --- CONFIGURARE ---
-        self.DWELL_THRESHOLD = 1.0   # Secunde necesare pentru a selecta
+        self.DWELL_THRESHOLD = 1.0  # Secunde pentru selectare
         self.FEEDBACK_DURATION = 2.0 # Cât timp afișăm Corect/Greșit
         
-        # --- STĂRILE JOCULUI ---
-        self.STATE_GAME_SELECT = "GAME_SELECT" # Meniul de alegere (Stânga/Dreapta)
-        self.STATE_PLAYING = "PLAYING"         # Întrebarea activă
-        self.STATE_FEEDBACK = "FEEDBACK"       # Pauza de după răspuns
-        self.STATE_GAMEOVER = "GAMEOVER"       # Ecranul de final
+        # --- STĂRI INTERNE ---
+        self.STATE_PLAYING = "PLAYING"
+        self.STATE_FEEDBACK = "FEEDBACK"
+        self.STATE_GAMEOVER = "GAMEOVER"
         
-        # --- LAYOUT BUTOANE (Valabil și pt meniu și pt răspunsuri) ---
-        # Coordonate procentuale: (x, y, width, height)
-        self.buttons_layout = {
-            "LEFT":  (0.1,  0.4, 0.35, 0.4), # Stânga
-            "RIGHT": (0.55, 0.4, 0.35, 0.4)  # Dreapta
-        }
+        # Variabile cerute de main_app.py
+        self.game_over = False 
+        self.state = self.STATE_PLAYING
         
-        # Inițializăm direct în meniul de selecție
-        self.reset_to_menu()
-
-    def reset_to_menu(self):
-        """Resetează totul și duce utilizatorul la ecranul de alegere a jocului"""
-        self.state = self.STATE_GAME_SELECT
-        self.reset_quiz_vars()
-
-    def reset_quiz_vars(self):
-        """Resetează variabilele strict legate de Quiz (scor, întrebări)"""
+        # Datele Quiz-ului
         self.questions = self._load_questions()
         self.current_q_index = 0
         self.score = 0
         
-        # Variabile pentru Hover (Selecție)
-        self.current_selection = None 
+        # Variabile pentru Interacțiune (Hover)
+        self.current_selection = None
         self.selection_start_time = 0
         self.progress = 0.0
         
@@ -42,122 +30,64 @@ class QuizGame:
         self.feedback_start_time = 0
         self.last_choice = None
         self.is_correct = False
+        
+        # Layout Răspunsuri (Stânga / Dreapta)
+        # Coordonate: (x, y, width, height) ca procent din ecran
+        self.options_layout = {
+            "LEFT":  (0.1,  0.4, 0.35, 0.4),
+            "RIGHT": (0.55, 0.4, 0.35, 0.4)
+        }
 
     def _load_questions(self):
-        """Lista de întrebări pentru IT Quiz"""
         return [
-            {
-                "text": "Ce reprezinta CPU?",
-                "options": {"LEFT": "Central Processing Unit", "RIGHT": "Central Power Unit"},
-                "correct": "LEFT"
-            },
-            {
-                "text": "Care memorie este volatila?",
-                "options": {"LEFT": "HDD (Hard Disk)", "RIGHT": "RAM (Random Access)"},
-                "correct": "RIGHT"
-            },
-            {
-                "text": "Limbajul binar foloseste doar:",
-                "options": {"LEFT": "0 si 1", "RIGHT": "1 si 2"},
-                "correct": "LEFT"
-            },
-            {
-                "text": "HTML este un limbaj de programare?",
-                "options": {"LEFT": "DA", "RIGHT": "NU (e de marcare)"},
-                "correct": "RIGHT"
-            },
-            {
-                "text": "Ce este un algoritm?",
-                "options": {"LEFT": "O componenta hardware", "RIGHT": "Pasi logici de rezolvare"},
-                "correct": "RIGHT"
-            },
-            {
-                "text": "Cum afisezi un mesaj in Python?",
-                "options": {"LEFT": "print('Mesaj')", "RIGHT": "echo 'Mesaj'"},
-                "correct": "LEFT"
-            }
+            {"text": "Ce este CPU?", "options": {"LEFT": "Central Processing Unit", "RIGHT": "Central Power Unit"}, "correct": "LEFT"},
+            {"text": "Memoria volatila este:", "options": {"LEFT": "HDD", "RIGHT": "RAM"}, "correct": "RIGHT"},
+            {"text": "Binar inseamna:", "options": {"LEFT": "0 si 1", "RIGHT": "1 si 2"}, "correct": "LEFT"},
+            {"text": "HTML e limbaj de programare?", "options": {"LEFT": "DA", "RIGHT": "NU"}, "correct": "RIGHT"},
+            {"text": "Algoritmul este:", "options": {"LEFT": "Hardware", "RIGHT": "Pasi Logici"}, "correct": "RIGHT"},
+             {"text": "Print in Python:", "options": {"LEFT": "print()", "RIGHT": "echo()"}, "correct": "LEFT"}
         ]
 
     def update(self, cursor_x, cursor_y):
         """
-        Logica principală. Se apelează la fiecare frame.
-        Input: Poziția cursorului (0.0 - 1.0).
-        Output: True dacă jocul cere ieșirea (ex: back to main menu), False altfel.
+        Logica jocului. Se apelează la fiecare frame din main_app.
         """
-        
-        # 1. ECRANUL DE SELECȚIE (IT Quiz vs Coming Soon)
-        if self.state == self.STATE_GAME_SELECT:
-            selection = self._handle_selection(cursor_x, cursor_y)
-            
-            if selection == "LEFT":
-                # A ales IT QUIZ -> Începem jocul
-                self.state = self.STATE_PLAYING
-                self.reset_quiz_vars()
-                
-            elif selection == "RIGHT":
-                # A ales Coming Soon -> Nu facem nimic momentan
-                pass
-            return False
+        if self.state == self.STATE_GAMEOVER:
+            return
 
-        # 2. ÎN TIMPUL JOCULUI (Răspunde la întrebări)
-        elif self.state == self.STATE_PLAYING:
-            selection = self._handle_selection(cursor_x, cursor_y)
-            if selection:
-                self._submit_answer(selection)
-            return False
-
-        # 3. FEEDBACK (Pauza de 2 secunde după răspuns)
-        elif self.state == self.STATE_FEEDBACK:
-            # Verificăm dacă a trecut timpul
+        # 1. Pauză pentru Feedback (după ce răspunzi)
+        if self.state == self.STATE_FEEDBACK:
             if time.time() - self.feedback_start_time > self.FEEDBACK_DURATION:
                 self._next_question()
-            return False
+            return
 
-        # 4. GAME OVER (Ecranul final)
-        elif self.state == self.STATE_GAMEOVER:
-            # Aici main_app se ocupă de desenare.
-            # Putem implementa logică de exit dacă utilizatorul face hover oriunde,
-            # dar momentan lăsăm main_app să decidă (prin timeout sau buton dedicat).
-            return False
-
-        return False
-
-    def _handle_selection(self, x, y):
-        """
-        Verifică dacă cursorul este peste stânga sau dreapta și calculează progresul.
-        Returnează 'LEFT' sau 'RIGHT' doar dacă selecția e completă (100%).
-        """
-        hovered_zone = None
-        
-        # Verificăm coliziunea cu butoanele definite în layout
-        for zone_name, (bx, by, bw, bh) in self.buttons_layout.items():
-            if bx < x < bx + bw and by < y < by + bh:
-                hovered_zone = zone_name
+        # 2. Logica de Joc (Așteaptă răspuns)
+        hovered = None
+        # Verificăm dacă cursorul este peste vreun buton
+        for key, (bx, by, bw, bh) in self.options_layout.items():
+            if bx < cursor_x < bx + bw and by < cursor_y < by + bh:
+                hovered = key
                 break
         
-        # Logica de "Dwell" (Trebuie să ții cursorul un timp)
-        if hovered_zone and hovered_zone == self.current_selection:
+        # Calculăm progresul de selecție
+        if hovered and hovered == self.current_selection:
             elapsed = time.time() - self.selection_start_time
             self.progress = min(elapsed / self.DWELL_THRESHOLD, 1.0)
             
             if self.progress >= 1.0:
-                # Selecție confirmată! Resetăm și returnăm rezultatul.
+                self._submit_answer(hovered)
                 self.progress = 0.0
                 self.current_selection = None
-                return hovered_zone 
         else:
-            # Resetăm dacă a mutat mâna sau a schimbat zona
-            self.current_selection = hovered_zone
+            self.current_selection = hovered
             self.selection_start_time = time.time()
             self.progress = 0.0
-            
-        return None
 
     def _submit_answer(self, choice):
-        """Verifică răspunsul și trece starea pe Feedback"""
-        current_q = self.questions[self.current_q_index]
+        """Verifică răspunsul"""
+        q = self.questions[self.current_q_index]
         self.last_choice = choice
-        self.is_correct = (choice == current_q["correct"])
+        self.is_correct = (choice == q["correct"])
         
         if self.is_correct:
             self.score += 1
@@ -166,61 +96,84 @@ class QuizGame:
         self.feedback_start_time = time.time()
 
     def _next_question(self):
-        """Trece la următoarea întrebare sau termină jocul"""
+        """Trece la următoarea întrebare"""
         self.current_q_index += 1
         if self.current_q_index >= len(self.questions):
             self.state = self.STATE_GAMEOVER
+            self.game_over = True
         else:
             self.state = self.STATE_PLAYING
 
-    def _get_final_message(self):
-        """Generează mesajul de la final în funcție de performanță"""
-        if len(self.questions) == 0: return "GATA!"
-        
-        ratio = self.score / len(self.questions)
-        
-        if ratio == 1.0:
-            return "EXCELENT! Esti genial!"
-        elif ratio >= 0.7:
-            return "FOARTE BINE! Bravo!"
-        elif ratio >= 0.5:
-            return "BUN! Dar poti mai mult."
-        else:
-            return "NU TE DESCURAJA! Mai incearca."
-
-    def get_current_data(self):
+    def draw(self, frame):
         """
-        Împachetează toate datele necesare pentru ca main_app să deseneze interfața.
+        Desenează interfața jocului.
+        Această metodă este apelată de main_app.py: display_frame = game.draw(display_frame)
         """
-        data = {
-            "state": self.state,
-            "layout": self.buttons_layout,
-            "selection": self.current_selection,
-            "progress": self.progress
-        }
-
-        # Date specifice pentru meniul de selecție
-        if self.state == self.STATE_GAME_SELECT:
-            return data 
-
-        # Date specifice pentru ecranul de final
+        h, w, _ = frame.shape
+        
+        # --- ECRAN FINAL (GAME OVER) ---
         if self.state == self.STATE_GAMEOVER:
-            data["score"] = self.score
-            data["total"] = len(self.questions)
-            data["final_message"] = self._get_final_message()
-            return data
+            cv2.putText(frame, "QUIZ COMPLETE", (w//2 - 150, h//2 - 50), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 255), 3)
+            cv2.putText(frame, f"SCORE: {self.score}/{len(self.questions)}", (w//2 - 120, h//2 + 50), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 2)
+            
+            # Mesaj final în funcție de scor
+            ratio = self.score / len(self.questions)
+            msg = "Bravo!" if ratio > 0.5 else "Mai incearca!"
+            cv2.putText(frame, msg, (w//2 - 80, h//2 + 120), 
+                       cv2.FONT_HERSHEY_SIMPLEX, 1.0, (200, 200, 200), 2)
+            return frame
 
-        # Date specifice pentru joc (Întrebare / Răspuns)
+        # --- ECRAN DE JOC (ÎNTREBARE) ---
         q = self.questions[self.current_q_index]
-        data.update({
-            "question": q["text"],
-            "options": q["options"],
-            "score": self.score,
-            "q_number": self.current_q_index + 1,
-            "total_q": len(self.questions),
-            "is_correct": self.is_correct,
-            "correct_ans": q["correct"],
-            "last_choice": self.last_choice
-        })
         
-        return data
+        # Titlu și Scor
+        cv2.putText(frame, f"Q{self.current_q_index+1}: {q['text']}", (50, 100), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
+        cv2.putText(frame, f"Score: {self.score}", (w-250, 100), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 255, 0), 2)
+
+        # Desenăm Opțiunile (Butoanele)
+        for key, text in q["options"].items():
+            bx, by, bw, bh = self.options_layout[key]
+            x1, y1 = int(bx * w), int(by * h)
+            w_px, h_px = int(bw * w), int(bh * h)
+            x2, y2 = x1 + w_px, y1 + h_px
+            
+            # Logică Culori
+            color = (50, 50, 50)         # Gri implicit
+            border_color = (200, 200, 200) # Contur implicit
+            
+            if self.state == self.STATE_FEEDBACK:
+                # Arătăm rezultatul (Verde/Roșu)
+                if key == q["correct"]:
+                    color = (0, 150, 0) # Verde
+                    text += " (OK)"
+                elif key == self.last_choice and not self.is_correct:
+                    color = (0, 0, 150) # Roșu
+                    text += " (X)"
+            elif key == self.current_selection:
+                # Hover activ
+                color = (100, 100, 100)
+                border_color = (0, 255, 255) # Galben
+
+            # Desenăm Cutiile (Overlay Transparent)
+            overlay = frame.copy()
+            cv2.rectangle(overlay, (x1, y1), (x2, y2), color, -1)
+            cv2.addWeighted(overlay, 0.6, frame, 0.4, 0, frame)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), border_color, 2)
+            
+            # Bara de Progres (doar la hover în timpul jocului)
+            if key == self.current_selection and self.state == self.STATE_PLAYING and self.progress > 0:
+                bar_w = int(w_px * self.progress)
+                cv2.rectangle(frame, (x1, y2-10), (x1+bar_w, y2), (0, 255, 0), -1)
+
+            # Centrare Text în Buton
+            font_scale = 0.8
+            tsz = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 2)[0]
+            tx = x1 + (w_px - tsz[0]) // 2
+            ty = y1 + (h_px + tsz[1]) // 2
+            cv2.putText(frame, text, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), 2)
+
+        return frame
