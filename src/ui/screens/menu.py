@@ -187,5 +187,5 @@ class MenuController:
             text_color = (255, 255, 255)
             if is_hovered: text_color = (200, 255, 255) 
             cv2.putText(frame, name, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, font_scale, text_color, thickness, lineType=cv2.LINE_4)
-
+    
         return frame
