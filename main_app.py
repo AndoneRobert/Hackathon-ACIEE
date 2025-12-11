@@ -92,11 +92,14 @@ def main():
                 if selection == "INFO":
                     current_state = STATE_INFO
                     info = InfoHub() # Reset state
-                elif selection == "PLAY":
+
+                # --- AICI SUNT MODIFICARILE ---
+                elif selection == "JOCURI": # Era "PLAY"
                     current_state = STATE_GAME
                     game = QuizGame() # Reset state
-                elif selection == "MAP":
-                    print("Map Selected (Placeholder)")
+                    
+                elif selection == "HARTA":  # Era "MAP"
+                    print("Harta Selectata (Placeholder)")
             
             display_frame = menu.draw(display_frame)
 
