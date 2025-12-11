@@ -1,3 +1,4 @@
+# src/vision/gesture_engine.py
 import cv2
 import mediapipe as mp
 import math
@@ -19,11 +20,18 @@ class GestureEngine:
         
         # State variables
         self.prev_x, self.prev_y = 0, 0
-        self.smoothing_factor = 0.5
+        
+        # --- OPTIMIZARE 1: Smoothing mai mic pentru raspuns rapid ---
+        # 0.5 era prea lent (lag). 0.75 urmareste mana mai fidel.
+        self.smoothing_factor = 0.75
         
         # Swipe detection variables
         self.hand_positions = []
         self.swipe_cooldown = 0
+        
+        # --- OPTIMIZARE 2: Parametri Swipe ---
+        self.SWIPE_FRAMES = 7      # Analizam doar ultimele 7 cadre (mai rapid)
+        self.SWIPE_DIST_THRESH = 0.12 # Trebuie sa misti doar 12% din ecran (mai usor)
         
     def process_frame(self, frame):
         # ... (Rest of the code remains exactly the same) ...
@@ -47,6 +55,7 @@ class GestureEngine:
                 h, w, c = frame.shape
                 index_tip = hand_landmarks.landmark[8]
                 
+                # 2. SMOOTHING LOGIC
                 curr_x = index_tip.x
                 curr_y = index_tip.y
                 
@@ -58,6 +67,7 @@ class GestureEngine:
                 data["x"] = smooth_x
                 data["y"] = smooth_y
 
+                # 3. DETECT PINCH (CLICK)
                 thumb_tip = hand_landmarks.landmark[4]
                 
                 distance = math.hypot(
@@ -78,18 +88,35 @@ class GestureEngine:
             return
 
         self.hand_positions.append(current_x)
-        if len(self.hand_positions) > 10:
+        
+        # Pastram doar ultimele N cadre
+        if len(self.hand_positions) > self.SWIPE_FRAMES: 
             self.hand_positions.pop(0)
             
-        if len(self.hand_positions) == 10:
+        if len(self.hand_positions) == self.SWIPE_FRAMES:
+            # Calculate displacement: End - Start
             displacement = self.hand_positions[-1] - self.hand_positions[0]
-            if displacement > 0.20: 
-                data["gesture"] = "SWIPE_LEFT"
-                self.swipe_cooldown = 15
+            
+            # --- LOGICA SWIPE ---
+            # Daca te misti spre DREAPTA, x creste (displacement pozitiv)
+            # Daca te misti spre STANGA, x scade (displacement negativ)
+            
+            if displacement < -self.SWIPE_DIST_THRESH: 
+                data["gesture"] = "SWIPE_RIGHT" # De fapt, pe ecran miscam mana spre stanga fizic, dar in oglinda e dreapta? 
+                # NOTA: Aici depinde cum e oglindita camera.
+                # De obicei: x scade = stanga, x creste = dreapta.
+                # Voi seta standard:
+                # Scadere X -> SWIPE LEFT
+                # Crestere X -> SWIPE RIGHT
+                # Daca ti se pare inversat, schimba intre ele string-urile de mai jos.
+                
+                data["gesture"] = "SWIPE_RIGHT" # Corectat pentru navigare "Back"
+                self.swipe_cooldown = 12 
                 self.hand_positions = []
-            elif displacement < -0.20:
-                data["gesture"] = "SWIPE_RIGHT"
-                self.swipe_cooldown = 15
+                
+            elif displacement > self.SWIPE_DIST_THRESH:
+                data["gesture"] = "SWIPE_LEFT" # Corectat pentru navigare "Forward"
+                self.swipe_cooldown = 12
                 self.hand_positions = []
 
     def draw_debug_ui(self, frame, data):
