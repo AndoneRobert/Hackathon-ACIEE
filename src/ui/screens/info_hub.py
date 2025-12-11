@@ -55,6 +55,14 @@ def draw_transparent_text(frame, text, x, y, font, scale, color=(200, 50, 50), t
 
 class InfoHub:
     def __init__(self):
+        # --- CONFIGURARE CULORI (STYLE GAME.PY) ---
+        self.PALETTE = {
+            "CYAN":   (235, 206, 135),
+            "PINK":   (203, 192, 255),
+            "BG_DARK": (40, 20, 45),
+            "TEXT":   (255, 255, 255)
+        }
+
         # --- INCARCARE LOGO ---
         self.logo_path = "assets/images/logo_ugal.jpeg"
         self.logo_img = None
@@ -89,11 +97,10 @@ class InfoHub:
             "IETTI": (0.55, 0.6, 0.35, 0.3) 
         }
         
-        self.back_btn_rect = (0.02, 0.02, 0.12, 0.08) 
+        # --- ACTUALIZARE RECT BUTON BACK (CA IN GAME.PY) ---
+        self.back_btn_rect = (0.03, 0.05, 0.12, 0.07)
 
         # --- BUTON EXIT (Jos Mijloc in Detail Mode) ---
-        # Centrat orizontal (aprox 42.5% -> 57.5%), sub chenarul textului (care se termina la 0.85)
-        # Format: (x, y, w, h)
         self.exit_btn_rect = (0.425, 0.88, 0.15, 0.08) 
         
         self.active_spec = None
@@ -149,7 +156,6 @@ class InfoHub:
         if ebx < x < ebx + ebw and eby < y < eby + ebh:
             if self.hovered_btn == "EXIT_BTN":
                 self.dwell_timer += 1
-                # Folosim pragul rapid (11 cadre) sau normal (22) - aici am pus rapid
                 if self.dwell_timer > self.BACK_DWELL_THRESHOLD:
                     self.dwell_timer = 0
                     self.hovered_btn = None
@@ -183,7 +189,6 @@ class InfoHub:
                 self.current_page -= 1
                 return "PREV_PAGE"
             else:
-                # Optional: Swipe Stanga pe prima pagina iese si el
                 self.active_spec = None
                 return None
                 
@@ -218,6 +223,46 @@ class InfoHub:
             "page_text": page_text
         }
     
+    def _draw_back_button_styled(self, frame, x, y, w, h, is_hovered, progress):
+        """Deseneaza butonul Back in stilul modern din game.py"""
+        x1, y1 = x, y
+        x2, y2 = x + w, y + h
+        
+        # Culori
+        corner_color = self.PALETTE["PINK"] if is_hovered else self.PALETTE["CYAN"]
+        bg_color = self.PALETTE["BG_DARK"]
+        
+        # 1. Fundal Semitransparent
+        roi = frame[y1:y2, x1:x2]
+        block = np.zeros_like(roi, dtype=np.uint8)
+        block[:] = bg_color
+        cv2.addWeighted(block, 0.4, roi, 0.6, 0, roi)
+        frame[y1:y2, x1:x2] = roi
+        
+        # 2. Border "Tech" (Colturi Opuse)
+        corner_w = int((x2-x1) * 0.3)
+        corner_h = int((y2-y1) * 0.4)
+        thick = 3 if is_hovered else 2
+        
+        # Stanga-Sus
+        cv2.line(frame, (x1, y1), (x1+corner_w, y1), corner_color, thick)
+        cv2.line(frame, (x1, y1), (x1, y1+corner_h), corner_color, thick)
+        # Dreapta-Jos
+        cv2.line(frame, (x2, y2), (x2-corner_w, y2), corner_color, thick)
+        cv2.line(frame, (x2, y2), (x2, y2-corner_h), corner_color, thick)
+        
+        # 3. Bara Progres
+        if is_hovered and progress > 0:
+            pw = int((x2-x1) * progress)
+            cv2.rectangle(frame, (x1, y2-4), (x1+pw, y2), self.PALETTE["PINK"], -1)
+            
+        # 4. Text
+        label = "<< INAPOI"
+        ts = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+        tx = x1 + (x2-x1-ts[0]) // 2
+        ty = y1 + (y2-y1+ts[1]) // 2
+        cv2.putText(frame, label, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.6, self.PALETTE["TEXT"], 2)
+
     def draw(self, frame):
         h, w, _ = frame.shape
         data = self.get_ui_data()
@@ -248,26 +293,17 @@ class InfoHub:
         if data["mode"] == "SELECTION":
             # --- SELECTION MODE ---
             
-            # Buton BACK
+            # --- MODIFICARE: Desenare buton Back Styled ---
             bbx, bby, bbw, bbh = data["back_btn"]
             x1 = int(bbx * w)
             y1 = int(bby * h)
-            x2 = int((bbx + bbw) * w)
-            y2 = int((bby + bbh) * h)
+            bw_px = int(bbw * w)
+            bh_px = int(bbh * h)
             
-            is_back_hovered = (data["hovered"] == "BACK_BTN")
-            back_color = (50, 50, 200) if is_back_hovered else (30, 30, 150)
-            
-            draw_transparent_box(frame, x1, y1, x2, y2, color=back_color, alpha=0.7)
-            
-            if is_back_hovered and data["progress"] > 0:
-                bar_w = int((x2 - x1) * data["progress"])
-                cv2.rectangle(frame, (x1, y2 - 5), (x1 + bar_w, y2), (0, 255, 0), -1)
-                
-            text_size = cv2.getTextSize("< Back", font, 0.7, 2)[0]
-            tx = x1 + (x2 - x1 - text_size[0]) // 2
-            ty = y1 + (y2 - y1 + text_size[1]) // 2
-            cv2.putText(frame, "< Back", (tx, ty), font, 0.7, (255, 255, 255), 2)
+            self._draw_back_button_styled(frame, x1, y1, bw_px, bh_px, 
+                                          data["hovered"] == "BACK_BTN", 
+                                          data["progress"])
+            # ---------------------------------------------
 
             # Titlu
             draw_transparent_text(frame, "Alege specializarea:", 65, 160, 
@@ -328,7 +364,7 @@ class InfoHub:
                            font, text_scale, (255, 255, 255), 2, cv2.LINE_AA)
                y_offset += line_height
 
-            # --- BUTON EXIT (NOU) ---
+            # --- BUTON EXIT (Jos Mijloc) ---
             ebx, eby, ebw, ebh = data["exit_btn"]
             ex1 = int(ebx * w)
             ey1 = int(eby * h)
@@ -336,7 +372,7 @@ class InfoHub:
             ey2 = int((eby + ebh) * h)
 
             is_exit_hovered = (data["hovered"] == "EXIT_BTN")
-            # Rosu pentru Exit (50, 50, 200) -> BGR
+            # Rosu pentru Exit (50, 50, 255) -> BGR
             exit_color = (50, 50, 255) if is_exit_hovered else (30, 30, 200)
 
             # Desenam cutie rosie transparenta
@@ -353,15 +389,11 @@ class InfoHub:
             ty = ey1 + (ey2 - ey1 + text_size[1]) // 2
             cv2.putText(frame, "EXIT", (tx, ty), font, 0.8, (255, 255, 255), 2)
 
-            # --- SWIPE HINTS (Ajustate) ---
-            # Le mutam stanga si dreapta, ca sa nu se suprapuna cu butonul din mijloc
-            
-            # Back/Prev Hint (Stanga)
+            # --- SWIPE HINTS ---
             back_text = "<- SWIPE LEFT (Inapoi)" if data['page'] > 1 else "<- SWIPE LEFT (Lista)"
             draw_text_with_shadow(frame, back_text, x1, ey1 + 30, font, 0.8, 2)
 
             if data['page'] < self.specializations[data['active_spec']]['pages']:
-                # Next Hint (Dreapta)
                 next_text = "SWIPE RIGHT (Inainte) ->"
                 (tw, _), _ = cv2.getTextSize(next_text, font, 0.8, 2)
                 draw_text_with_shadow(frame, next_text, x2 - tw, ey1 + 30, font, 0.8, 2)

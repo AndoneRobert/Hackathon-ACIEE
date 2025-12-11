@@ -409,7 +409,7 @@ class QuizGame:
             ts2 = cv2.getTextSize(m2, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)[0]
             cv2.putText(frame, m2, (w//2 - ts2[0]//2, py + 270), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0,255,255), 2)
             
-            self._draw_modern_button(frame, "RETRY", "REINCEARCA (AI)", self.game_over_layout, curr_time)
+            self._draw_modern_button(frame, "RETRY", "REINCEARCA", self.game_over_layout, curr_time)
             self._draw_modern_button(frame, "EXIT", "INAPOI LA JOCURI", self.game_over_layout, curr_time)
             return frame
 
