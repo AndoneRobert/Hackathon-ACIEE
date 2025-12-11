@@ -1,4 +1,5 @@
 # src/ui/screens/info_hub.py
+import cv2
 from .info_detail import get_page_text
 
 class InfoHub:
@@ -91,3 +92,97 @@ class InfoHub:
             "progress": min(self.dwell_timer / 45.0, 1.0),
             "page_text": page_text
         }
+    
+    def draw(self, frame):
+        h, w, _ = frame.shape
+        data = self.get_ui_data()
+        font = cv2.FONT_HERSHEY_SIMPLEX
+        
+        # Draw Title
+        cv2.putText(frame, "INFO HUB", (50, 50), 
+                   font, 1.5, (255, 255, 255), 3)
+
+        if data["mode"] == "SELECTION":
+            # --- SELECTION MODE DRAWING ---
+            cv2.putText(frame, "Alege specializarea:", (50, 120), 
+                       font, 1.0, (200, 200, 200), 2)
+
+            for key, (bx_norm, by_norm, bw_norm, bh_norm) in self.buttons.items():
+                
+                # Convert normalized coordinates to pixels
+                x1 = int(bx_norm * w)
+                y1 = int(by_norm * h)
+                x2 = int((bx_norm + bw_norm) * w)
+                y2 = int((by_norm + bh_norm) * h)
+                
+                is_hovered = (key == data["hovered"])
+                
+                # Colors
+                bg_color = (15, 15, 45)
+                border_color = (100, 100, 100)
+                text_color = (255, 255, 255)
+                
+                if is_hovered:
+                    bg_color = (30, 30, 90)
+                    border_color = (255, 255, 0)
+                    text_color = (255, 255, 0)
+                
+                # Draw Box
+                cv2.rectangle(frame, (x1, y1), (x2, y2), bg_color, -1)
+                cv2.rectangle(frame, (x1, y1), (x2, y2), border_color, 2)
+                
+                # Draw Progress Bar
+                if is_hovered and data["progress"] > 0:
+                    bar_w = int((x2 - x1) * data["progress"])
+                    cv2.rectangle(frame, (x1, y2 - 10), (x1 + bar_w, y2), (0, 255, 0), -1)
+
+                # Draw Text (Centered)
+                text_content = self.specializations[key]["name"].split(',')[0]
+                text_size = cv2.getTextSize(text_content, font, 0.8, 2)[0]
+                tx = x1 + (x2 - x1 - text_size[0]) // 2
+                ty = y1 + (y2 - y1 + text_size[1]) // 2
+                
+                cv2.putText(frame, text_content, (tx, ty), font, 0.8, text_color, 2)
+        
+        elif data["mode"] == "DETAIL":
+            # --- DETAIL MODE DRAWING ---
+            
+            # Title Bar
+            title_text = f"{data['spec_name']} - P. {data['page']}/{self.specializations[data['active_spec']]['pages']}"
+            cv2.putText(frame, title_text, (50, 120), 
+                       font, 1.0, (255, 255, 0), 2)
+            
+            # Content Box (80% of screen, centered)
+            box_w_norm, box_h_norm = 0.85, 0.70
+            bx_norm, by_norm = 0.075, 0.15 
+            
+            x1 = int(bx_norm * w)
+            y1 = int(by_norm * h)
+            x2 = int((bx_norm + box_w_norm) * w)
+            y2 = int((by_norm + box_h_norm) * h)
+            
+            # Draw content background
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (20, 20, 50), -1)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), (255, 255, 255), 1)
+
+            # Draw Page Text (Handle multi-line text)
+            line_height = 30
+            y_offset = y1 + 50
+            for line in data["page_text"].split('\n'):
+                # Trim the line to fit the box width
+                
+                # Simple single line drawing. If text is too long, it will be clipped.
+                cv2.putText(frame, line.strip(), (x1 + 30, y_offset), 
+                           font, 0.7, (200, 200, 255), 1, cv2.LINE_AA)
+                y_offset += line_height
+                
+            # Swipe Hint
+            if data['page'] > 1:
+                cv2.putText(frame, "<- SWIPE RIGHT (Inapoi la pagina/meniu)", (x1, y2 + 40), 
+                           font, 0.6, (255, 255, 255), 1)
+            if data['page'] < self.specializations[data['active_spec']]['pages']:
+                cv2.putText(frame, "SWIPE LEFT (Pagina urmatoare) ->", (x2 - 350, y2 + 40), 
+                           font, 0.6, (255, 255, 255), 1)
+
+
+        return frame
