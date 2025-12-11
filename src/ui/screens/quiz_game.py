@@ -27,18 +27,31 @@ class QuizGame:
         self.current_q_index = 0
         self.score = 0
         
-        # --- INTERACȚIUNE ---
+        # --- INTERACȚIUNE RASPUNSURI ---
         self.current_selection = None
         self.selection_start_time = 0
         self.progress = 0.0
+        
+        # --- INTERACTIUNE BUTON BACK ---
+        self.back_hovered = False
+        self.back_start_time = 0
+        self.back_progress = 0.0
         
         self.feedback_start_time = 0
         self.last_choice = None
         self.is_correct = False
         
-        # --- CULORI ACIEE ---
+        # --- CULORI ACIEE (Joc) ---
         self.COLOR_ACIEE_DARK = (46, 27, 8)
         self.COLOR_ACIEE_LIGHT = (131, 77, 23)
+        
+        # --- CULORI BUTON BACK (ALBASTRU) ---
+        self.BLUE_PALETTE = {
+            "IDLE": (230, 100, 0),    # Albastru Inchis
+            "HOVER": (255, 255, 0),   # Cyan
+            "BG": (50, 20, 0),        # Dark Navy Background
+            "TEXT": (255, 255, 255)
+        }
         
         # Layout Răspunsuri
         self.options_layout = {
@@ -52,6 +65,9 @@ class QuizGame:
             "EXIT":  (0.55, 0.75, 0.35, 0.15)
         }
         
+        # Layout Buton INAPOI (Stanga Sus)
+        self.back_btn_layout = (0.03, 0.05, 0.12, 0.07)
+
         self.anim_offsets = {k: random.uniform(0, 6.28) for k in list(self.options_layout.keys()) + list(self.game_over_layout.keys())}
 
         self.start_loading_questions()
@@ -91,12 +107,10 @@ class QuizGame:
         ]
 
     def _clean_text(self, text):
-        """Elimina diacriticele si curata ghilimelele."""
         replacements = {
             'ă': 'a', 'â': 'a', 'î': 'i', 'ș': 's', 'ț': 't',
             'Ă': 'A', 'Â': 'A', 'Î': 'I', 'Ș': 'S', 'Ț': 'T',
             'ş': 's', 'ţ': 't', 'Ş': 'S', 'Ţ': 'T',
-            # Ghilimele si simboluri
             '„': '"', '”': '"', '“': '"', '’': "'", '‘': "'", '–': '-', '—': '-'
         }
         for k, v in replacements.items():
@@ -104,97 +118,91 @@ class QuizGame:
         return text
 
     def _draw_centered_text_wrapped(self, frame, text, center_x, center_y, max_w, max_h, color, thickness=2, font_face=cv2.FONT_HERSHEY_SIMPLEX):
-        """
-        Scrie text pe mai multe linii, centrat, micsorand fontul daca e nevoie.
-        """
         words = text.split(' ')
-        best_scale = 1.5 # Pornim de la un font mare
+        best_scale = 1.5 
         min_scale = 0.5
-        
         final_lines = []
         final_scale = best_scale
         
-        # Iteram sa gasim marimea potrivita (de la mare la mic)
         for scale in np.arange(best_scale, min_scale - 0.1, -0.1):
             scale = round(scale, 1)
-            
-            # Verificam inaltimea liniei
             (w_space, h_line), baseline = cv2.getTextSize("Tg", font_face, scale, thickness)
-            line_height = h_line + baseline + 10 # Spatiu intre linii
-            
+            line_height = h_line + baseline + 10 
             lines = []
             current_line = ""
-            
             valid_fit = True
             
             for word in words:
-                # Testam cuvantul pe linia curenta
                 test_line = current_line + (" " if current_line else "") + word
                 (w_text, h_text), _ = cv2.getTextSize(test_line, font_face, scale, thickness)
-                
                 if w_text <= max_w:
                     current_line = test_line
                 else:
-                    # Cuvantul nu incape, trecem pe linie noua
-                    if current_line: # Salvam linia veche
-                        lines.append(current_line)
-                    
-                    # Testam daca cuvantul singur incape pe o linie (caz extrem)
+                    if current_line: lines.append(current_line)
                     (w_word, _), _ = cv2.getTextSize(word, font_face, scale, thickness)
                     if w_word > max_w:
-                        valid_fit = False # Nici macar un cuvant nu incape
+                        valid_fit = False 
                         break
-                        
                     current_line = word
+            if current_line: lines.append(current_line)
+            if not valid_fit: continue 
             
-            if current_line:
-                lines.append(current_line)
-                
-            if not valid_fit:
-                continue # Incercam font mai mic
-            
-            # Verificam inaltimea totala
             total_h = len(lines) * line_height
             if total_h <= max_h:
                 final_lines = lines
                 final_scale = scale
-                break # Am gasit cea mai mare marime care incape!
+                break 
         
-        # Daca nu am gasit nimic (textul e prea lung chiar si pt font minim), fortam pe minim
         if not final_lines:
-            final_lines = [text] # Va iesi din ecran, dar macar e ceva
+            final_lines = [text]
             final_scale = min_scale
 
-        # Desenare efectiva
         (w_dummy, h_line), baseline = cv2.getTextSize("Tg", font_face, final_scale, thickness)
         line_height = h_line + baseline + 10
         total_block_h = len(final_lines) * line_height
-        
-        start_y = center_y - (total_block_h // 2) + h_line # Ajustare pentru baseline
+        start_y = center_y - (total_block_h // 2) + h_line 
         
         for i, line in enumerate(final_lines):
             (lw, lh), _ = cv2.getTextSize(line, font_face, final_scale, thickness)
             lx = center_x - (lw // 2)
             ly = start_y + (i * line_height)
-            
-            # Umbra pentru contrast
             cv2.putText(frame, line, (lx+2, ly+2), font_face, final_scale, (0,0,0), thickness)
-            # Textul
             cv2.putText(frame, line, (lx, ly), font_face, final_scale, color, thickness)
 
     def reset(self):
         self.game_over = False
         self.current_selection = None
         self.progress = 0.0
+        self.back_progress = 0.0
         self.start_loading_questions()
 
     def update(self, cursor_x, cursor_y):
+        # --- VERIFICARE BUTON BACK (Doar daca NU e Game Over) ---
+        if self.state != self.STATE_GAMEOVER:
+            bx, by, bw, bh = self.back_btn_layout
+            if bx < cursor_x < bx + bw and by < cursor_y < by + bh:
+                if not self.back_hovered:
+                    self.back_hovered = True
+                    self.back_start_time = time.time()
+                    self.back_progress = 0.0
+                else:
+                    elapsed = time.time() - self.back_start_time
+                    self.back_progress = min(elapsed / self.DWELL_THRESHOLD, 1.0)
+                    if self.back_progress >= 1.0:
+                        self.back_hovered = False
+                        self.back_progress = 0.0
+                        return "EXIT_TO_APP" 
+            else:
+                self.back_hovered = False
+                self.back_progress = 0.0
+
+        # --- LOGICA NORMALA JOC ---
         if self.state == self.STATE_LOADING:
             return None
 
         if self.state == self.STATE_GAMEOVER:
-            self._handle_interaction(cursor_x, cursor_y, self.game_over_layout, is_game=False)
-            return None
+            # FIX: Returnam rezultatul interactiunii (ca sa prindem EXIT_TO_APP)
+            return self._handle_interaction(cursor_x, cursor_y, self.game_over_layout, is_game=False)
 
         if self.state == self.STATE_FEEDBACK:
             if time.time() - self.feedback_start_time > self.FEEDBACK_DURATION:
@@ -225,64 +233,16 @@ class QuizGame:
                 if is_game:
                     self._submit_answer(hovered)
                 else:
+                    # FIX: Gestionare butoane Game Over
                     if hovered == "RETRY":
                         self.reset()
                     elif hovered == "EXIT":
-                        pass # Wrapper handles return via update
+                        return "EXIT_TO_APP" # <--- AICI ERA PROBLEMA!
         else:
             self.current_selection = hovered
             self.selection_start_time = time.time()
             self.progress = 0.0
-
-    # Override update pt Wrapper
-    def update(self, cursor_x, cursor_y):
-        if self.state == self.STATE_LOADING: return None
-
-        if self.state == self.STATE_GAMEOVER:
-            hovered = None
-            for key, (bx, by, bw, bh) in self.game_over_layout.items():
-                if bx < cursor_x < bx + bw and by < cursor_y < by + bh:
-                    hovered = key
-                    break
             
-            if hovered and hovered == self.current_selection:
-                elapsed = time.time() - self.selection_start_time
-                self.progress = min(elapsed / self.DWELL_THRESHOLD, 1.0)
-                if self.progress >= 1.0:
-                    self.progress = 0.0
-                    self.current_selection = None
-                    if hovered == "RETRY": self.reset()
-                    elif hovered == "EXIT": return "EXIT_TO_APP"
-            else:
-                self.current_selection = hovered
-                self.selection_start_time = time.time()
-                self.progress = 0.0
-            return None
-
-        if self.state == self.STATE_FEEDBACK:
-            if time.time() - self.feedback_start_time > self.FEEDBACK_DURATION:
-                self._next_question()
-            return None
-
-        if not self.questions: return None
-
-        hovered = None
-        for key, (bx, by, bw, bh) in self.options_layout.items():
-            if bx < cursor_x < bx + bw and by < cursor_y < by + bh:
-                hovered = key
-                break
-        
-        if hovered and hovered == self.current_selection:
-            elapsed = time.time() - self.selection_start_time
-            self.progress = min(elapsed / self.DWELL_THRESHOLD, 1.0)
-            if self.progress >= 1.0:
-                self._submit_answer(hovered)
-                self.progress = 0.0
-                self.current_selection = None
-        else:
-            self.current_selection = hovered
-            self.selection_start_time = time.time()
-            self.progress = 0.0
         return None
 
     def _submit_answer(self, choice):
@@ -318,10 +278,49 @@ class QuizGame:
         cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 255, 255), 1)
         return frame
 
-    def _draw_modern_button(self, frame, key, text, layout_dict, current_time, is_answer=False):
-        # 1. Curatam textul (diacritice + ghilimele)
-        text = self._clean_text(text)
+    def _draw_back_button(self, frame):
+        h, w, _ = frame.shape
+        bx, by, bw, bh = self.back_btn_layout
+        x1, y1 = int(bx * w), int(by * h)
+        x2, y2 = int((bx + bw) * w), int((by + bh) * h)
         
+        # Culori
+        border_col = self.BLUE_PALETTE["HOVER"] if self.back_hovered else self.BLUE_PALETTE["IDLE"]
+        bg_col = self.BLUE_PALETTE["BG"]
+        
+        # 1. Fundal Semitransparent
+        roi = frame[y1:y2, x1:x2]
+        block = np.zeros_like(roi, dtype=np.uint8)
+        block[:] = bg_col
+        cv2.addWeighted(block, 0.4, roi, 0.6, 0, roi)
+        frame[y1:y2, x1:x2] = roi
+        
+        # 2. Border "Tech" (Colturi Opuse)
+        corner_w = int((x2-x1) * 0.3)
+        corner_h = int((y2-y1) * 0.4)
+        thick = 3 if self.back_hovered else 2
+        
+        # Stanga-Sus
+        cv2.line(frame, (x1, y1), (x1+corner_w, y1), border_col, thick)
+        cv2.line(frame, (x1, y1), (x1, y1+corner_h), border_col, thick)
+        # Dreapta-Jos
+        cv2.line(frame, (x2, y2), (x2-corner_w, y2), border_col, thick)
+        cv2.line(frame, (x2, y2), (x2, y2-corner_h), border_col, thick)
+        
+        # 3. Bara Progres
+        if self.back_hovered and self.back_progress > 0:
+            pw = int((x2-x1) * self.back_progress)
+            cv2.rectangle(frame, (x1, y2-4), (x1+pw, y2), self.BLUE_PALETTE["HOVER"], -1)
+            
+        # 4. Text
+        label = "<< INAPOI"
+        ts = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
+        tx = x1 + (x2-x1-ts[0]) // 2
+        ty = y1 + (y2-y1+ts[1]) // 2
+        cv2.putText(frame, label, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.6, self.BLUE_PALETTE["TEXT"], 2)
+
+    def _draw_modern_button(self, frame, key, text, layout_dict, current_time, is_answer=False):
+        text = self._clean_text(text)
         bx, by, bw, bh = layout_dict[key]
         h, w, _ = frame.shape
         
@@ -348,7 +347,6 @@ class QuizGame:
             c_bot = tuple(min(255, c+40) for c in self.COLOR_ACIEE_LIGHT)
             border = (0,255,255)
 
-        # Draw
         if is_hover and self.state != self.STATE_FEEDBACK:
             cv2.rectangle(frame, (x1-2, y1-2), (x2+2, y2+2), (0,100,100), -1)
         
@@ -365,27 +363,25 @@ class QuizGame:
             bw_prog = int(w_px * self.progress)
             cv2.rectangle(frame, (x1, y2-6), (x1+bw_prog, y2), (0,255,0), -1)
 
-        # --- TEXT WRAPPING ---
         center_x = x1 + w_px // 2
         center_y = y1 + h_px // 2
-        # Padding: 20px
         self._draw_centered_text_wrapped(frame, text, center_x, center_y, w_px - 20, h_px - 20, (255,255,255))
 
     def draw(self, frame):
         h, w, _ = frame.shape
         curr_time = time.time()
+        
+        # FIX: Deseneaza Butonul BACK doar daca NU e Game Over
+        if self.state != self.STATE_GAMEOVER:
+            self._draw_back_button(frame)
 
         if self.state == self.STATE_LOADING:
-            overlay = frame.copy()
-            cv2.rectangle(overlay, (0,0), (w,h), (0,0,0), -1)
-            cv2.addWeighted(overlay, 0.7, frame, 0.3, 0, frame)
             msg = "AI GENEREAZA INTREBARI..."
             font = cv2.FONT_HERSHEY_SIMPLEX
             ts = cv2.getTextSize(msg, font, 1.0, 2)[0]
             pulse = abs(math.sin(curr_time * 3)) * 255
             col = (255, pulse, 0)
             cv2.putText(frame, msg, (w//2 - ts[0]//2, h//2), font, 1.0, col, 2)
-            cv2.putText(frame, "Te rugam asteapta", (w//2 - 100, h//2 + 50), font, 0.7, (200,200,200), 1)
             return frame
 
         if self.state == self.STATE_FEEDBACK:
@@ -405,19 +401,16 @@ class QuizGame:
             r = 0 if not self.questions else self.score/len(self.questions)
             m1 = "Excelent! Esti nascut pentru inginerie!" if r>=0.8 else "Bravo! Ai potential mare." if r>=0.5 else "Nu te descuraja!"
             m2 = "Te asteptam la ACIEE!" if r>=0.8 else "Hai la ACIEE sa devii expert!" if r>=0.5 else "Vino la ACIEE sa inveti!"
-            
-            # Clean text
             m1 = self._clean_text(m1)
             m2 = self._clean_text(m2)
             
-            # Aici nu e nevoie de wrap complex pentru ca mesajele sunt scurte, dar putem folosi
             ts1 = cv2.getTextSize(m1, cv2.FONT_HERSHEY_SIMPLEX, 0.8, 2)[0]
             cv2.putText(frame, m1, (w//2 - ts1[0]//2, py + 220), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (220,220,220), 2)
             ts2 = cv2.getTextSize(m2, cv2.FONT_HERSHEY_SIMPLEX, 0.9, 2)[0]
             cv2.putText(frame, m2, (w//2 - ts2[0]//2, py + 270), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (0,255,255), 2)
             
             self._draw_modern_button(frame, "RETRY", "REINCEARCA (AI)", self.game_over_layout, curr_time)
-            self._draw_modern_button(frame, "EXIT", "INAPOI LA MENIU", self.game_over_layout, curr_time)
+            self._draw_modern_button(frame, "EXIT", "INAPOI LA JOCURI", self.game_over_layout, curr_time)
             return frame
 
         if not self.questions: return frame
@@ -432,8 +425,9 @@ class QuizGame:
         q_count_text = f"Intrebarea {self.current_q_index + 1} / {len(self.questions)}"
         q_count_text = self._clean_text(q_count_text)
         
-        panel_q_x, panel_q_y = 30, 30
         ts_q = cv2.getTextSize(q_count_text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+        panel_q_x = w // 2 - (ts_q[0] + 40) // 2 
+        panel_q_y = 30
         
         overlay = frame.copy()
         cv2.rectangle(overlay, (panel_q_x, panel_q_y), (panel_q_x + ts_q[0] + 40, panel_q_y + 40), (0,0,0), -1)
@@ -444,7 +438,6 @@ class QuizGame:
         score_lbl = f"Scor: {self.score}"
         cv2.putText(frame, score_lbl, (hx + hw - 150, hy + hh - 15), cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200,200,200), 1)
         
-        # --- WRAP PENTRU INTREBARE ---
         center_qx = hx + hw // 2
         center_qy = hy + hh // 2
         self._draw_centered_text_wrapped(frame, q_text, center_qx, center_qy, hw - 40, hh - 20, (255,255,255))
