@@ -312,8 +312,74 @@ def draw_info_ui(frame, data, gesture_data):
             cv2.putText(frame, key, (x1+20, y1+50), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
     else:
         cv2.rectangle(frame, (50, 50), (w-50, h-50), (255, 100, 0), 2)
-        cv2.putText(frame, f"{data['active_spec']} - PAGE {data['page']}", (100, 100), cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2)
-        cv2.putText(frame, "Swipe LEFT for next page / RIGHT for back", (100, h-100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1)
+        cv2.putText(frame, f"{data['active_spec']} - PAGE {data['page']}", (100, 100),
+                    cv2.FONT_HERSHEY_SIMPLEX, 1, (255, 255, 255), 2, cv2.LINE_AA)
+        cv2.putText(frame, "Swipe LEFT for next page / RIGHT for back", (100, h-100),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (200, 200, 200), 1, cv2.LINE_AA)
+
+        # --- Draw the page text with wrapping, semi-transparent background and outline ---
+        text = data.get("page_text", "")
+        if text:
+            font = cv2.FONT_HERSHEY_SIMPLEX
+            font_scale = 0.8
+            thickness = 2
+            outline_thickness = thickness + 2
+            line_height = int(36 * font_scale)
+            x_start = 90
+            y_start = 140
+            max_width = w - 240  # available pixel width for text
+
+            # word-wrapping helper
+            def wrap_text(paragraphs, font, font_scale, thickness, max_width):
+                lines = []
+                for paragraph in paragraphs.split("\n"):
+                    if not paragraph.strip():
+                        lines.append("")
+                        continue
+                    words = paragraph.split(" ")
+                    current = ""
+                    for word in words:
+                        candidate = current + (" " if current else "") + word
+                        size = cv2.getTextSize(candidate, font, font_scale, thickness)[0]
+                        if size[0] <= max_width:
+                            current = candidate
+                        else:
+                            if current:
+                                lines.append(current)
+                            current = word
+                    if current:
+                        lines.append(current)
+                return lines
+
+            wrapped_lines = wrap_text(text, font, font_scale, thickness, max_width)
+
+            # compute bounding box for background using measured widths
+            max_line_w = 0
+            for ln in wrapped_lines:
+                w_ln = cv2.getTextSize(ln, font, font_scale, thickness)[0][0]
+                max_line_w = max(max_line_w, w_ln)
+            box_x1 = x_start - 12
+            box_y1 = y_start - 28
+            box_x2 = x_start + max_line_w + 12
+            box_y2 = y_start + len(wrapped_lines) * line_height + 8
+            # draw semi-transparent background
+            overlay = frame.copy()
+            cv2.rectangle(overlay, (box_x1, box_y1), (box_x2, box_y2), (0, 0, 0), -1)
+            alpha = 0.55
+            cv2.addWeighted(overlay, alpha, frame, 1 - alpha, 0, frame)
+
+            # draw lines with outline (dark then bright)
+            y = y_start
+            for line in wrapped_lines:
+                if y > h - 140:
+                    break
+                # outline (dark)
+                cv2.putText(frame, line, (x_start, y), font, font_scale, (0, 0, 0),
+                            outline_thickness, cv2.LINE_AA)
+                # main text (light)
+                cv2.putText(frame, line, (x_start, y), font, font_scale, (235, 235, 235),
+                            thickness, cv2.LINE_AA)
+                y += line_height
     return frame
 
 if __name__ == "__main__":
