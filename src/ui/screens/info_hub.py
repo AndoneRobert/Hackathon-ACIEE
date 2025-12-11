@@ -339,10 +339,10 @@ class InfoHub:
                 bar_w = int((ex2 - ex1) * data["progress"])
                 cv2.rectangle(frame, (ex1, ey2 - 5), (ex1 + bar_w, ey2), (0, 255, 0), -1)
 
-            text_size = cv2.getTextSize("EXIT", font, 0.8, 2)[0]
+            text_size = cv2.getTextSize("INAPOI", font, 0.8, 2)[0]
             tx = ex1 + (ex2 - ex1 - text_size[0]) // 2
             ty = ey1 + (ey2 - ey1 + text_size[1]) // 2
-            cv2.putText(frame, "EXIT", (tx, ty), font, 0.8, (255, 255, 255), 2)
+            cv2.putText(frame, "INAPOI", (tx, ty), font, 0.8, (255, 255, 255), 2)
 
             # --- SWIPE HINTS ---
             
