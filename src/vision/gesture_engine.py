@@ -12,8 +12,9 @@ class GestureEngine:
         self.hands = self.mp_hands.Hands(
             static_image_mode=False,
             max_num_hands=1,
-            min_detection_confidence=0.7,
-            min_tracking_confidence=0.7
+            model_complexity=0,       # <--- CRITICAL OPTIMIZATION (0=Lite, 1=Full)
+            min_detection_confidence=0.5, # Lowered slightly for speed
+            min_tracking_confidence=0.5
         )
         self.mp_draw = mp.solutions.drawing_utils
         
@@ -25,7 +26,7 @@ class GestureEngine:
         self.smoothing_factor = 0.75
         
         # Swipe detection variables
-        self.hand_positions = []  # Stores recent x positions
+        self.hand_positions = []
         self.swipe_cooldown = 0
         
         # --- OPTIMIZARE 2: Parametri Swipe ---
@@ -33,17 +34,16 @@ class GestureEngine:
         self.SWIPE_DIST_THRESH = 0.12 # Trebuie sa misti doar 12% din ecran (mai usor)
         
     def process_frame(self, frame):
-        """
-        Input: A standard OpenCV frame.
-        Output: A dictionary containing cursor coordinates and gesture events.
-        """
+        # ... (Rest of the code remains exactly the same) ...
+        # Just copy the process_frame, _detect_swipe, and draw_debug_ui methods 
+        # from your original file here.
         frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         results = self.hands.process(frame_rgb)
         
         data = {
             "cursor_detected": False,
-            "x": 0, "y": 0,         # Normalized 0.0 to 1.0
-            "gesture": None,        # "CLICK", "SWIPE_LEFT", "SWIPE_RIGHT" or None
+            "x": 0, "y": 0,
+            "gesture": None,
             "landmarks": None
         }
 
@@ -52,7 +52,6 @@ class GestureEngine:
                 data["cursor_detected"] = True
                 data["landmarks"] = hand_landmarks
                 
-                # 1. GET INDEX FINGER TIP (Landmark 8)
                 h, w, c = frame.shape
                 index_tip = hand_landmarks.landmark[8]
                 
@@ -60,11 +59,9 @@ class GestureEngine:
                 curr_x = index_tip.x
                 curr_y = index_tip.y
                 
-                # Interpolate to reduce jitter
                 smooth_x = self.prev_x + (curr_x - self.prev_x) * self.smoothing_factor
                 smooth_y = self.prev_y + (curr_y - self.prev_y) * self.smoothing_factor
                 
-                # Update history
                 self.prev_x, self.prev_y = smooth_x, smooth_y
                 
                 data["x"] = smooth_x
@@ -73,26 +70,19 @@ class GestureEngine:
                 # 3. DETECT PINCH (CLICK)
                 thumb_tip = hand_landmarks.landmark[4]
                 
-                # Euclidean distance calculation
                 distance = math.hypot(
                     (index_tip.x - thumb_tip.x) * w, 
                     (index_tip.y - thumb_tip.y) * h
                 )
                 
-                # If fingers are close (less than 40 pixels), trigger click
                 if distance < 40:
                     data["gesture"] = "CLICK"
                 
-                # 4. DETECT SWIPE
                 self._detect_swipe(smooth_x, data)
                 
         return data
 
     def _detect_swipe(self, current_x, data):
-        """
-        Analyzes movement history to detect swipes.
-        """
-        # Cooldown prevents multiple swipes registering instantly
         if self.swipe_cooldown > 0:
             self.swipe_cooldown -= 1
             return
@@ -130,22 +120,12 @@ class GestureEngine:
                 self.hand_positions = []
 
     def draw_debug_ui(self, frame, data):
-        """
-        Helper to visualize what the engine sees.
-        """
         h, w, _ = frame.shape
-        
         if data["cursor_detected"]:
-            # Draw Index Finger (Cursor)
             cx, cy = int(data["x"] * w), int(data["y"] * h)
             cv2.circle(frame, (cx, cy), 15, (0, 255, 0), cv2.FILLED)
-            
-            # Draw Swipe Status
             if data["gesture"]:
                 cv2.putText(frame, f"GESTURE: {data['gesture']}", (50, 50), 
                            cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 3)
-                
-            # Draw Skeleton
             self.mp_draw.draw_landmarks(frame, data["landmarks"], self.mp_hands.HAND_CONNECTIONS)
-            
         return frame

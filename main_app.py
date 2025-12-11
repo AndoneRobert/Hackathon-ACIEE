@@ -106,12 +106,13 @@ def main():
                 current_state = STATE_SAVER
 
             if gesture_data["cursor_detected"]:
-                game.update(gesture_data["x"], gesture_data["y"])
-            
-            if game.game_over:
-                # Add exit logic here if needed, or wait for timeout
-                pass
+                # --- MODIFICARE IMPORTANTA ---
+                # Capturam semnalul de iesire ("True") din joc
+                should_exit = game.update(gesture_data["x"], gesture_data["y"])
                 
+                if should_exit:
+                    current_state = STATE_MENU
+            
             display_frame = game.draw(display_frame)
 
         # === D. INFO HUB ===
