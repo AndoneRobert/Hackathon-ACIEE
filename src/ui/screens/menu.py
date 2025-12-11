@@ -10,8 +10,8 @@ class MenuController:
         # Layout: Dictionary of "Key": (Center_X_Norm, Center_Y_Norm, Radius_Norm_Fraction_of_Width)
         self.layout = {
             "INFO": (0.2, 0.3, 0.12),    
-            "PLAY": (0.8, 0.3, 0.12),    
-            "MAP":  (0.5, 0.75, 0.12)    
+            "JOCURI": (0.8, 0.3, 0.12),    
+            "HARTA":  (0.5, 0.75, 0.12)    
         }
         
         self.state = {
@@ -121,10 +121,6 @@ class MenuController:
     def draw(self, frame):
         h, w, _ = frame.shape
         current_time = time.time()
-        
-        # Title
-        cv2.putText(frame, "MAIN MENU", (50, 50), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 3)
 
         # Draw Buttons
         for name, (cx_norm, cy_norm, r_norm) in self.layout.items():

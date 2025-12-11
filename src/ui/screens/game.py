@@ -63,18 +63,17 @@ class QuizGame: # Clasa Hub pentru Jocuri
         if self.mode == "QUIZ":
             result = self.quiz.update(cx, cy)
             if result == "EXIT_TO_APP":
-                self.mode = "MENU"
+                self.mode = "MENU" # Ne intoarcem la bule
                 self.quiz.reset()
-                return True # Iesire in Main App
+                return False # <--- MODIFICAT: Ramanem in Hub-ul de jocuri
             return False
 
         elif self.mode == "ARCADE":
             self.arcade.update(cx, cy)
             if not self.arcade.active:
-                # Cand Arcade devine inactiv (s-a apasat MENU la game over)
-                self.mode = "MENU"
-                self.arcade.reset() 
-                return True # <--- FIX: Returneaza True pentru a iesi in Meniul Principal (Initial)
+                self.mode = "MENU" # Ne intoarcem la bule
+                self.arcade.reset()
+                return False # <--- MODIFICAT: Ramanem in Hub-ul de jocuri
             return False
 
         elif self.mode == "MAZE":
@@ -82,7 +81,7 @@ class QuizGame: # Clasa Hub pentru Jocuri
             if not self.maze.active:
                 self.mode = "MENU"
                 self.maze.reset()
-                return True # <--- Optional: Acelasi comportament si pentru Maze
+                return False # <--- MODIFICAT: Consistenta si pentru Maze
             return False
 
         # 2. LOGICA MENIU SELECTIE
@@ -232,7 +231,7 @@ class QuizGame: # Clasa Hub pentru Jocuri
 
         # TEXT BUTON ("<< BACK")
         font_scale = 0.7
-        text = "<< BACK"
+        text = "<< INAPOI"
         ts = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 2)[0]
         tx = x1 + (x2 - x1 - ts[0]) // 2
         ty = y1 + (y2 - y1 + ts[1]) // 2

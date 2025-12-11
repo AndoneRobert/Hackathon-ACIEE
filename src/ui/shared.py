@@ -52,7 +52,7 @@ def draw_back_button(frame, rect_norm, is_hovered, progress):
         cv2.rectangle(frame, (x1, y2 - 4), (x1 + prog_w, y2), SHARED_PALETTE["PINK"], -1)
 
     # Text
-    text = "<< BACK"
+    text = "<< INAPOI"
     font_scale = 0.7
     ts = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 2)[0]
     tx = x1 + (x2 - x1 - ts[0]) // 2
