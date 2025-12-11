@@ -34,19 +34,18 @@ class QuizGame:
         self.is_correct = False
         
         # --- DESIGN & CULORI (ACIEE STYLE) ---
-        # OpenCV foloseste BGR, nu RGB.
         # Gradient Start (SUS): #081B2E -> BGR: (46, 27, 8)
         # Gradient End (JOS):   #174D83 -> BGR: (131, 77, 23)
         self.COLOR_ACIEE_DARK = (46, 27, 8)
         self.COLOR_ACIEE_LIGHT = (131, 77, 23)
         
-        # Layout Răspunsuri (Stânga / Dreapta) - Procente din ecran
+        # Layout Răspunsuri
         self.options_layout = {
             "LEFT":  (0.1,  0.55, 0.35, 0.3), # x, y, w, h
             "RIGHT": (0.55, 0.55, 0.35, 0.3)
         }
         
-        # --- ANIMATIE (Plutire) ---
+        # --- ANIMATIE ---
         self.anim_offsets = {k: random.uniform(0, 6.28) for k in self.options_layout.keys()}
 
     def _load_questions(self):
@@ -60,24 +59,25 @@ class QuizGame:
         ]
 
     def update(self, cursor_x, cursor_y):
-        """ Logica jocului (apelată la fiecare frame) """
+        """ Logica jocului (apelată DOAR cand e detectata mana) """
         if self.state == self.STATE_GAMEOVER:
             return
 
-        # 1. Pauză Feedback
+        # Daca suntem in feedback, nu mai procesam hover, dar verificam timpul
+        # (Dublam verificarea si aici pentru cand mana e prezenta)
         if self.state == self.STATE_FEEDBACK:
             if time.time() - self.feedback_start_time > self.FEEDBACK_DURATION:
                 self._next_question()
             return
 
-        # 2. Logica Hover
+        # Logica Hover
         hovered = None
         for key, (bx, by, bw, bh) in self.options_layout.items():
             if bx < cursor_x < bx + bw and by < cursor_y < by + bh:
                 hovered = key
                 break
         
-        # 3. Calcul Progres
+        # Calcul Progres
         if hovered and hovered == self.current_selection:
             elapsed = time.time() - self.selection_start_time
             self.progress = min(elapsed / self.DWELL_THRESHOLD, 1.0)
@@ -108,11 +108,8 @@ class QuizGame:
             self.state = self.STATE_PLAYING
 
     def _draw_gradient_rect(self, frame, x, y, w, h, color_start, color_end):
-        """Desenează un dreptunghi cu gradient VERTICAL (Sus-Jos)"""
-        # Creăm un mic canvas pentru gradient
+        """Desenează un dreptunghi cu gradient VERTICAL"""
         gradient = np.zeros((h, w, 3), dtype=np.uint8)
-        
-        # Generăm gradient VERTICAL (iteram pe inaltime 'h')
         for i in range(h):
             alpha = i / h
             color = (
@@ -120,13 +117,12 @@ class QuizGame:
                 int(color_start[1] * (1 - alpha) + color_end[1] * alpha),
                 int(color_start[2] * (1 - alpha) + color_end[2] * alpha)
             )
-            # Setam culoarea pentru toata linia 'i'
             gradient[i, :] = color
-            
-        # Copiem gradientul peste frame
-        frame[y:y+h, x:x+w] = gradient
         
-        # Adăugăm un contur fin alb pentru eleganță
+        # Verificare limite frame
+        if y+h > frame.shape[0] or x+w > frame.shape[1]: return frame
+
+        frame[y:y+h, x:x+w] = gradient
         cv2.rectangle(frame, (x, y), (x+w, y+h), (255, 255, 255), 1)
         return frame
 
@@ -134,16 +130,20 @@ class QuizGame:
         h, w, _ = frame.shape
         current_time = time.time()
 
+        # --- FIX: VERIFICARE TIMEOUT FEEDBACK AICI ---
+        # Deoarece main_app nu apeleaza update() cand mana nu e prezenta,
+        # verificam timpul si aici (draw se apeleaza mereu).
+        if self.state == self.STATE_FEEDBACK:
+            if time.time() - self.feedback_start_time > self.FEEDBACK_DURATION:
+                self._next_question()
+
         # --- ECRAN GAME OVER ---
         if self.state == self.STATE_GAMEOVER:
-            # Gradient Vertical pentru Game Over
             self._draw_gradient_rect(frame, w//2 - 300, h//2 - 200, 600, 400, self.COLOR_ACIEE_DARK, self.COLOR_ACIEE_LIGHT)
-            
             cv2.putText(frame, "QUIZ COMPLETE", (w//2 - 180, h//2 - 50), 
                        cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
             cv2.putText(frame, f"SCORE: {self.score}/{len(self.questions)}", (w//2 - 120, h//2 + 50), 
                        cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 255, 255), 2)
-            
             msg = "Bravo!" if (self.score / len(self.questions)) > 0.5 else "Mai incearca!"
             cv2.putText(frame, msg, (w//2 - 100, h//2 + 130), 
                        cv2.FONT_HERSHEY_SIMPLEX, 1.0, (200, 200, 200), 2)
@@ -152,7 +152,7 @@ class QuizGame:
         # --- JOC ACTIV ---
         q = self.questions[self.current_q_index]
 
-        # 1. HEADER ÎNTREBARE (Gradient Vertical ACIEE)
+        # 1. HEADER
         header_w = int(w * 0.9)
         header_h = 140
         header_x = (w - header_w) // 2
@@ -160,29 +160,26 @@ class QuizGame:
         
         self._draw_gradient_rect(frame, header_x, header_y, header_w, header_h, self.COLOR_ACIEE_DARK, self.COLOR_ACIEE_LIGHT)
         
-        # Textul Întrebării (Centrat în header)
+        # Text Întrebare
         font_scale = 1.3
         thick = 2
         text_size = cv2.getTextSize(q['text'], cv2.FONT_HERSHEY_SIMPLEX, font_scale, thick)[0]
         text_x = header_x + (header_w - text_size[0]) // 2
         text_y = header_y + (header_h + text_size[1]) // 2
         
-        # Umbră text
         cv2.putText(frame, q['text'], (text_x+2, text_y+2), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0, 0, 0), thick)
         cv2.putText(frame, q['text'], (text_x, text_y), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), thick)
         
-        # Scor în colțul header-ului
         cv2.putText(frame, f"Score: {self.score}", (header_x + header_w - 180, header_y + header_h - 15), 
                    cv2.FONT_HERSHEY_SIMPLEX, 0.8, (200, 200, 200), 1)
 
-        # 2. BUTOANE RĂSPUNS (Carduri Plutitoare)
+        # 2. BUTOANE
         for key, text in q["options"].items():
             bx, by, bw, bh = self.options_layout[key]
             
-            # --- ANIMATIE PLUTIRE (Floating) ---
+            # Animatie Plutire
             float_offset = math.sin(current_time * 2.5 + self.anim_offsets[key]) * 8
             
-            # Coordonate pixeli
             x1 = int(bx * w)
             y1 = int(by * h + float_offset)
             w_px = int(bw * w)
@@ -190,44 +187,35 @@ class QuizGame:
             x2 = x1 + w_px
             y2 = y1 + h_px
             
-            # --- STILIZARE ---
+            # Stilizare
             is_hovered = (key == self.current_selection)
-            
-            # Culori Default
             bg_color = (20, 20, 20) 
             border_color = (100, 100, 100)
             text_color = (200, 200, 200)
             
-            # Culori Feedback
             if self.state == self.STATE_FEEDBACK:
                 if key == q["correct"]:
-                    bg_color = (0, 100, 0)     # Verde închis
-                    border_color = (0, 255, 0) # Verde neon
+                    bg_color = (0, 100, 0)
+                    border_color = (0, 255, 0)
                     text_color = (255, 255, 255)
                 elif key == self.last_choice and not self.is_correct:
-                    bg_color = (0, 0, 100)     # Roșu închis
-                    border_color = (0, 0, 255) # Roșu neon
+                    bg_color = (0, 0, 100)
+                    border_color = (0, 0, 255)
             elif is_hovered:
-                # Hover (Mai deschis + Cyan Border)
                 bg_color = (60, 60, 60)
-                border_color = (255, 255, 0) # Cyan/Galbui
+                border_color = (255, 255, 0)
                 text_color = (255, 255, 255)
 
-            # Desenare Fundal (Overlay Transparent)
+            # Desenare
             overlay = frame.copy()
             cv2.rectangle(overlay, (x1, y1), (x2, y2), bg_color, -1)
             cv2.addWeighted(overlay, 0.75, frame, 0.25, 0, frame)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), border_color, 3 if is_hovered else 2)
             
-            # Contur
-            thick = 3 if is_hovered else 2
-            cv2.rectangle(frame, (x1, y1), (x2, y2), border_color, thick)
-            
-            # Bară Progres
             if is_hovered and self.state == self.STATE_PLAYING and self.progress > 0:
                 bar_w = int(w_px * self.progress)
                 cv2.rectangle(frame, (x1, y2-8), (x1+bar_w, y2), (0, 255, 0), -1)
 
-            # Text Răspuns Centrat
             font_s = 1.1
             t_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_s, 2)[0]
             t_x = x1 + (w_px - t_size[0]) // 2
