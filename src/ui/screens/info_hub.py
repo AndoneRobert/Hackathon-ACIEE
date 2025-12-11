@@ -92,8 +92,6 @@ class InfoHub:
         self.back_btn_rect = (0.02, 0.02, 0.12, 0.08) 
 
         # --- BUTON EXIT (Jos Mijloc in Detail Mode) ---
-        # Centrat orizontal (aprox 42.5% -> 57.5%), sub chenarul textului (care se termina la 0.85)
-        # Format: (x, y, w, h)
         self.exit_btn_rect = (0.425, 0.88, 0.15, 0.08) 
         
         self.active_spec = None
@@ -145,11 +143,9 @@ class InfoHub:
         # 1. Verificam Butonul EXIT
         ebx, eby, ebw, ebh = self.exit_btn_rect
         
-        # Daca cursorul este pe butonul EXIT
         if ebx < x < ebx + ebw and eby < y < eby + ebh:
             if self.hovered_btn == "EXIT_BTN":
                 self.dwell_timer += 1
-                # Folosim pragul rapid (11 cadre) sau normal (22) - aici am pus rapid
                 if self.dwell_timer > self.BACK_DWELL_THRESHOLD:
                     self.dwell_timer = 0
                     self.hovered_btn = None
@@ -160,7 +156,6 @@ class InfoHub:
                 self.hovered_btn = "EXIT_BTN"
                 self.dwell_timer = 0
         else:
-            # Daca nu suntem pe buton, resetam timer-ul DOAR daca eram pe el inainte
             if self.hovered_btn == "EXIT_BTN":
                 self.hovered_btn = None
                 self.dwell_timer = 0
@@ -177,14 +172,15 @@ class InfoHub:
                 self.current_page += 1
                 return "NEXT_PAGE"
                 
-        # SWIPE STANGA -> PREV PAGE (sau EXIT daca e prima pag)
+        # SWIPE STANGA -> PREV PAGE (doar daca nu suntem pe prima pagina)
         elif gesture == "SWIPE_LEFT":
             if self.current_page > 0:
                 self.current_page -= 1
                 return "PREV_PAGE"
             else:
-                # Optional: Swipe Stanga pe prima pagina iese si el
-                self.active_spec = None
+                # --- MODIFICARE: Pe prima pagina NU mai iesim la swipe ---
+                # Ignoram gestul daca suntem pe pagina 0
+                pass 
                 return None
                 
         return None
@@ -197,7 +193,6 @@ class InfoHub:
             spec_name = spec.get("name", self.active_spec)
             page_text = get_page_text(self.active_spec, self.current_page)
 
-        # Determinam pragul in functie de buton
         if self.hovered_btn == "BACK_BTN" or self.hovered_btn == "EXIT_BTN":
             threshold = self.BACK_DWELL_THRESHOLD
         else:
@@ -328,7 +323,7 @@ class InfoHub:
                            font, text_scale, (255, 255, 255), 2, cv2.LINE_AA)
                y_offset += line_height
 
-            # --- BUTON EXIT (NOU) ---
+            # --- BUTON EXIT ---
             ebx, eby, ebw, ebh = data["exit_btn"]
             ex1 = int(ebx * w)
             ey1 = int(eby * h)
@@ -336,32 +331,27 @@ class InfoHub:
             ey2 = int((eby + ebh) * h)
 
             is_exit_hovered = (data["hovered"] == "EXIT_BTN")
-            # Rosu pentru Exit (50, 50, 200) -> BGR
             exit_color = (50, 50, 255) if is_exit_hovered else (30, 30, 200)
 
-            # Desenam cutie rosie transparenta
             draw_transparent_box(frame, ex1, ey1, ex2, ey2, color=exit_color, alpha=0.8)
 
-            # Bara de progres pentru Exit
             if is_exit_hovered and data["progress"] > 0:
                 bar_w = int((ex2 - ex1) * data["progress"])
                 cv2.rectangle(frame, (ex1, ey2 - 5), (ex1 + bar_w, ey2), (0, 255, 0), -1)
 
-            # Text "EXIT"
             text_size = cv2.getTextSize("EXIT", font, 0.8, 2)[0]
             tx = ex1 + (ex2 - ex1 - text_size[0]) // 2
             ty = ey1 + (ey2 - ey1 + text_size[1]) // 2
             cv2.putText(frame, "EXIT", (tx, ty), font, 0.8, (255, 255, 255), 2)
 
-            # --- SWIPE HINTS (Ajustate) ---
-            # Le mutam stanga si dreapta, ca sa nu se suprapuna cu butonul din mijloc
+            # --- SWIPE HINTS ---
             
-            # Back/Prev Hint (Stanga)
-            back_text = "<- SWIPE LEFT (Inapoi)" if data['page'] > 1 else "<- SWIPE LEFT (Lista)"
-            draw_text_with_shadow(frame, back_text, x1, ey1 + 30, font, 0.8, 2)
+            # MODIFICARE: Afisam "Swipe Left" doar daca pagina > 1
+            if data['page'] > 1:
+                back_text = "<- SWIPE LEFT (Inapoi)"
+                draw_text_with_shadow(frame, back_text, x1, ey1 + 30, font, 0.8, 2)
 
             if data['page'] < self.specializations[data['active_spec']]['pages']:
-                # Next Hint (Dreapta)
                 next_text = "SWIPE RIGHT (Inainte) ->"
                 (tw, _), _ = cv2.getTextSize(next_text, font, 0.8, 2)
                 draw_text_with_shadow(frame, next_text, x2 - tw, ey1 + 30, font, 0.8, 2)
