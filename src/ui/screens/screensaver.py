@@ -155,9 +155,11 @@ class Screensaver:
     def draw(self, frame, logo_img=None):
         h, w, _ = frame.shape
         
-        # 1. Background Dimming
+        # 1. Background Dimming (Neutral Dark Charcoal)
         overlay = frame.copy()
-        cv2.rectangle(overlay, (0, 0), (w, h), (20, 10, 40), -1) 
+        # BGR Color: All equal and low -> Dark Grey
+        cv2.rectangle(overlay, (0, 0), (w, h), (15, 15, 15), -1) 
+        
         cv2.addWeighted(overlay, 0.95, frame, 0.05, 0, frame)
         
         # 2. Draw Matrix Particles
