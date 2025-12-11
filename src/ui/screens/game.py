@@ -1,190 +1,139 @@
 import cv2
 import time
 
-class QuizGame:
+# --- IMPORTURILE CORECTATE ---
+# Importăm clasa ta din 'quiz_game.py' și o redenumim temporar 'QuizLogic'
+# pentru a nu intra în conflict cu clasa 'QuizGame' de mai jos (care e meniul).
+from src.ui.screens.quiz_game import QuizGame as QuizLogic
+from src.ui.screens.arcade import ArcadeComponent
+
+class QuizGame: # Aceasta este clasa HUB (Meniul Principal) cerută de main_app.py
     def __init__(self):
-        # Sample Question Data
-        self.questions = [
-            {
-                "q": "What is the output of print(2 ** 3)?",
-                "options": {"A": "6", "B": "8", "C": "9", "D": "Error"},
-                "correct": "B"
-            },
-            {
-                "q": "Which keyword is used for loops?",
-                "options": {"A": "for", "B": "loop", "C": "repeat", "D": "cycle"},
-                "correct": "A"
-            },
-            {
-                "q": "In OpenCV, which color space is default?",
-                "options": {"A": "RGB", "B": "HSV", "C": "BGR", "D": "CMYK"},
-                "correct": "C"
-            }
-        ]
+        self.mode = "MENU"     # Poate fi: MENU, QUIZ, ARCADE
+        self.game_over = False # Flag pentru main_app (dacă vrei să închizi tot)
         
-        # Game State
-        self.current_q_index = 0
-        self.score = 0
-        self.game_over = False
+        # Inițializăm instanțele jocurilor
+        self.quiz = QuizLogic()
+        self.arcade = ArcadeComponent()
         
-        # Selection / Hover Logic
-        self.selection = None
-        self.selection_start = 0
-        self.selection_progress = 0.0
-        self.SELECTION_TIME = 2.0  # Seconds to hold to select
-        
-        # Cooldown to prevent double-skipping
-        self.last_answer_time = 0
-
-    def update(self, cursor_x, cursor_y):
-        """
-        Updates hover logic and checks for answer selection.
-        """
-        if self.game_over:
-            return
-
-        # Prevent immediate input after a question change
-        if time.time() - self.last_answer_time < 1.0:
-            return
-
-        current_q = self.questions[self.current_q_index]
-        hovered_option = None
-
-        # Define Hitboxes (Normalized 0.0 - 1.0)
-        # We roughly map these to where we draw them
-        hitboxes = {
-            "A": (0.05, 0.3, 0.4, 0.2),  # x, y, w, h
-            "B": (0.55, 0.3, 0.4, 0.2),
-            "C": (0.05, 0.6, 0.4, 0.2),
-            "D": (0.55, 0.6, 0.4, 0.2)
+        # --- CONFIGURARE MENIU ---
+        self.buttons = {
+            "QUIZ": (0.15, 0.4, 0.3, 0.2), # Stânga
+            "JOC":  (0.55, 0.4, 0.3, 0.2)  # Dreapta
         }
+        
+        # Variabile hover meniu
+        self.hovered = None
+        self.hover_start = 0
+        self.progress = 0.0
+        self.SELECTION_TIME = 1.5
+        
+        # Timer pentru pauza de la finalul quiz-ului
+        self.end_game_timer = 0
 
-        for key, (hx, hy, hw, hh) in hitboxes.items():
-            if hx < cursor_x < hx + hw and hy < cursor_y < hy + hh:
-                hovered_option = key
+    def update(self, cx, cy):
+        """Dispecer principal: trimite datele la jocul activ sau la meniu."""
+        
+        # 1. DACĂ SUNTEM ÎN MODUL QUIZ
+        if self.mode == "QUIZ":
+            self.quiz.update(cx, cy)
+            
+            # Verificăm dacă quiz-ul a setat flag-ul de final
+            if self.quiz.game_over:
+                # Așteptăm 4 secunde să vadă scorul, apoi revenim la meniu
+                if self.end_game_timer == 0:
+                    self.end_game_timer = time.time()
+                elif time.time() - self.end_game_timer > 4.0:
+                    self.mode = "MENU"
+                    self.end_game_timer = 0
+            return
+
+        # 2. DACĂ SUNTEM ÎN MODUL ARCADE
+        elif self.mode == "ARCADE":
+            self.arcade.update(cx, cy)
+            
+            # Arcade folosește 'active' = False când termină
+            if not self.arcade.active:
+                self.mode = "MENU"
+            return
+
+        # 3. DACĂ SUNTEM ÎN MENIU
+        self._update_menu(cx, cy)
+
+    def _update_menu(self, cx, cy):
+        current_hover = None
+        for name, (bx, by, bw, bh) in self.buttons.items():
+            if bx < cx < bx + bw and by < cy < by + bh:
+                current_hover = name
                 break
         
-        # Logic for holding selection
-        if hovered_option:
-            if self.selection != hovered_option:
-                self.selection = hovered_option
-                self.selection_start = time.time()
-                self.selection_progress = 0.0
+        if current_hover:
+            if self.hovered != current_hover:
+                self.hovered = current_hover
+                self.hover_start = time.time()
+                self.progress = 0.0
             else:
-                elapsed = time.time() - self.selection_start
-                self.selection_progress = min(elapsed / self.SELECTION_TIME, 1.0)
+                elapsed = time.time() - self.hover_start
+                self.progress = min(elapsed / self.SELECTION_TIME, 1.0)
                 
                 if elapsed >= self.SELECTION_TIME:
-                    self.submit_answer(hovered_option)
+                    # --- LANSARE JOC ---
+                    if current_hover == "QUIZ":
+                        # Re-instanțiem QuizLogic pentru a reseta scorul și întrebările
+                        self.quiz = QuizLogic()
+                        self.mode = "QUIZ"
+                    elif current_hover == "JOC":
+                        self.arcade.reset()
+                        self.mode = "ARCADE"
+                    
+                    self.hovered = None
+                    self.progress = 0.0
         else:
-            self.selection = None
-            self.selection_progress = 0.0
-
-    def submit_answer(self, answer_key):
-        """Checks answer and advances game."""
-        correct = self.questions[self.current_q_index]["correct"]
-        if answer_key == correct:
-            self.score += 10
-        
-        self.current_q_index += 1
-        self.last_answer_time = time.time()
-        self.selection = None
-        self.selection_progress = 0.0
-        
-        if self.current_q_index >= len(self.questions):
-            self.game_over = True
-
-    def get_current_data(self):
-        """Returns minimal data for the main loop logic (if needed)."""
-        if self.game_over:
-            return {"game_over": True, "score": self.score}
-        
-        q = self.questions[self.current_q_index]
-        return {
-            "game_over": False,
-            "question": q["q"],
-            "answers": q["options"],
-            "selection": self.selection,
-            "progress": self.selection_progress,
-            "score": self.score
-        }
+            self.hovered = None
+            self.progress = 0.0
 
     def draw(self, frame):
-        """
-        Draws the Game UI directly onto the frame.
-        """
+        # Desenăm jocul activ
+        if self.mode == "QUIZ":
+            return self.quiz.draw(frame)
+        elif self.mode == "ARCADE":
+            return self.arcade.draw(frame)
+        
+        # --- DESENARE MENIU ---
         h, w, _ = frame.shape
         
-        # --- GAME OVER SCREEN ---
-        if self.game_over:
-            overlay = frame.copy()
-            cv2.rectangle(overlay, (0, 0), (w, h), (0, 0, 50), -1)
-            cv2.addWeighted(overlay, 0.9, frame, 0.1, 0, frame)
-            
-            cv2.putText(frame, "GAME OVER", (w//2 - 200, h//2 - 50), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 2.5, (255, 255, 255), 4)
-            
-            score_text = f"Final Score: {self.score}"
-            ts = cv2.getTextSize(score_text, cv2.FONT_HERSHEY_SIMPLEX, 1.5, 3)[0]
-            cv2.putText(frame, score_text, ((w - ts[0])//2, h//2 + 50), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 1.5, (0, 255, 255), 3)
-            return frame
+        # Titlu
+        cv2.putText(frame, "ALEGE ACTIVITATEA", (w//2 - 220, 150), 
+                   cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
 
-        # --- ACTIVE GAME UI ---
-        
-        # 1. Header (Question)
-        current_q = self.questions[self.current_q_index]
-        
-        # Dark panel for question
-        cv2.rectangle(frame, (50, 40), (w - 50, 160), (30, 30, 30), -1)
-        cv2.rectangle(frame, (50, 40), (w - 50, 160), (255, 255, 255), 2)
-        
-        # Draw Question Text
-        cv2.putText(frame, f"Q{self.current_q_index + 1}: {current_q['q']}", (80, 115), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 1.0, (255, 255, 255), 2)
-
-        # Draw Score
-        cv2.putText(frame, f"Score: {self.score}", (w - 250, 130), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.8, (0, 255, 0), 2)
-
-        # 2. Answer Options (A, B, C, D)
-        layout_map = {
-            "A": (int(0.05*w), int(0.3*h), int(0.4*w), int(0.2*h)),
-            "B": (int(0.55*w), int(0.3*h), int(0.4*w), int(0.2*h)),
-            "C": (int(0.05*w), int(0.6*h), int(0.4*w), int(0.2*h)),
-            "D": (int(0.55*w), int(0.6*h), int(0.4*w), int(0.2*h)),
-        }
-
-        for key, text in current_q["options"].items():
-            bx, by, bw, bh = layout_map[key]
+        # Butoane
+        for name, (bx, by, bw, bh) in self.buttons.items():
+            x1, y1 = int(bx * w), int(by * h)
+            x2, y2 = int((bx + bw) * w), int((by + bh) * h)
             
-            is_selected = (self.selection == key)
+            is_hovered = (self.hovered == name)
             
-            # Colors
-            bg_color = (60, 60, 60)
+            # Culori
+            bg_color = (50, 50, 50)
             border_color = (200, 200, 200)
             
-            if is_selected:
-                bg_color = (100, 50, 0) # Dark Orange
-                border_color = (0, 165, 255) # Orange/Gold
-            
-            # Draw Box
-            cv2.rectangle(frame, (bx, by), (bx+bw, by+bh), bg_color, -1)
-            cv2.rectangle(frame, (bx, by), (bx+bw, by+bh), border_color, 2 if not is_selected else 4)
-            
-            # Draw Progress Bar (if holding)
-            if is_selected:
-                bar_w = int(bw * self.selection_progress)
-                cv2.rectangle(frame, (bx, by + bh - 15), (bx + bar_w, by + bh), (0, 255, 0), -1)
+            if is_hovered:
+                bg_color = (0, 100, 0) if name == "QUIZ" else (0, 0, 100)
+                border_color = (0, 255, 255)
 
-            # Draw Text (Centered in box)
-            label = f"{key}: {text}"
-            font_scale = 1.0
-            font_thick = 2
-            ts = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, font_scale, font_thick)[0]
-            tx = bx + (bw - ts[0]) // 2
-            ty = by + (bh + ts[1]) // 2
+            # Desenare buton
+            cv2.rectangle(frame, (x1, y1), (x2, y2), bg_color, -1)
+            cv2.rectangle(frame, (x1, y1), (x2, y2), border_color, 3 if is_hovered else 2)
             
-            cv2.putText(frame, label, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255,255,255), font_thick)
+            # Bară progres
+            if is_hovered:
+                bar_w = int((x2 - x1) * self.progress)
+                cv2.rectangle(frame, (x1, y2-15), (x1+bar_w, y2), (0, 255, 0), -1)
+            
+            # Text centrat
+            ts = cv2.getTextSize(name, cv2.FONT_HERSHEY_SIMPLEX, 1.2, 2)[0]
+            tx = x1 + (x2 - x1 - ts[0]) // 2
+            ty = y1 + (y2 - y1 + ts[1]) // 2
+            cv2.putText(frame, name, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (255, 255, 255), 2)
 
         return frame
