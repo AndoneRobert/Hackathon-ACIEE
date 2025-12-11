@@ -29,11 +29,12 @@ class MazeGame:
         self.grid_h = len(self.level_layout)
         self.grid_w = len(self.level_layout[0])
         self.last_dims = (0, 0)
-
-        # --- JUMPSCARE CONFIG ---
-        self.TRANSIT_DURATION = 0.2 
         
-        # Incarcare asset Jumpscare
+        # Buffer pentru fundal static (optimizare Pi 4)
+        self.static_bg = None 
+
+        # --- CONFIG JUMPSCARE ---
+        self.TRANSIT_DURATION = 0.2 
         current_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.abspath(os.path.join(current_dir, "../../../"))
         jumpscare_path = os.path.join(project_root, "assets", "images", "job_application.png")
@@ -43,14 +44,23 @@ class MazeGame:
              self.jumpscare_img = np.zeros((500, 500, 3), dtype=np.uint8)
              self.jumpscare_img[:] = (0, 0, 255)
 
-        # --- VARIABILE ANIMATIE ---
+        # --- VARIABILE UI & INTERACȚIUNE ---
         self.pulse_phase = 0.0
+        
+        # Butoane pentru Popup
+        self.btn_retry_rect = None
+        self.btn_menu_rect = None
+        
+        # Hover logic (pentru a selecta butoanele cu mana)
+        self.hover_start_time = 0
+        self.hovered_button = None # "RETRY" sau "MENU"
+        self.HOVER_THRESHOLD = 1.5 # Secunde de tinut mana pe buton pentru activare
 
         self.reset()
 
     def _parse_level(self, width, height):
+        # ... (Aceeasi logica de parcurgere grid) ...
         self.walls = []
-        # Calculam dimensiunile celulelor
         cell_w = width / self.grid_w
         cell_h = height / self.grid_h
         
@@ -58,7 +68,7 @@ class MazeGame:
             for c, char in enumerate(row):
                 x = int(c * cell_w)
                 y = int(r * cell_h)
-                w = int(cell_w) + 1 # +1 pentru a evita spatiile goale intre blocuri
+                w = int(cell_w) + 1
                 h = int(cell_h) + 1
                 
                 if char == '#':
@@ -67,37 +77,108 @@ class MazeGame:
                     self.start_rect = (x, y, w, h)
                 elif char == 'E':
                     self.end_rect = (x, y, w, h)
+        
+        # --- PRE-RANDARE FUNDAL ---
+        self.static_bg = np.zeros((height, width, 3), dtype=np.uint8)
+        self.static_bg[:] = (15, 15, 20)
+        
+        # Grid
+        step = 50
+        grid_color = (30, 30, 40)
+        for x_line in range(0, width, step):
+            cv2.line(self.static_bg, (x_line, 0), (x_line, height), grid_color, 1)
+        for y_line in range(0, height, step):
+            cv2.line(self.static_bg, (0, y_line), (width, y_line), grid_color, 1)
+
+        # Pereti
+        wall_color = (255, 200, 0)
+        bright_color = (255, 255, 150)
+        for (wx, wy, ww, wh) in self.walls:
+            cv2.rectangle(self.static_bg, (wx, wy), (wx + ww, wy + wh), (50, 40, 0), -1) 
+            cv2.rectangle(self.static_bg, (wx, wy), (wx + ww, wy + wh), wall_color, 2)
+            # Colturi
+            c = 8
+            cv2.line(self.static_bg, (wx, wy), (wx + c, wy), bright_color, 2)
+            cv2.line(self.static_bg, (wx, wy), (wx, wy + c), bright_color, 2)
+
+        # --- DEFINIRE BUTOANE POPUP (Centrate) ---
+        bw, bh = 200, 60
+        cx, cy = width // 2, height // 2
+        self.btn_retry_rect = (cx - bw - 20, cy + 50, bw, bh)
+        self.btn_menu_rect = (cx + 20, cy + 50, bw, bh)
 
     def reset(self):
         self.active = True
         self.state = "WAITING" 
-        self.message = "Mergi la START pentru a incepe!"
-        self.msg_color = (0, 255, 0) # Verde
-        self.end_time = 0
+        self.message = "Mergi la START!"
+        self.msg_color = (0, 255, 0)
+        
         self.jumpscare_start_time = 0
+        self.win_screen_start_time = 0
+        
+        self.hovered_button = None
+        self.hover_start_time = 0
         self.cursor_norm = (0.5, 0.5) 
 
     def update(self, cx_norm, cy_norm):
         if not self.active: return
         self.cursor_norm = (cx_norm, cy_norm)
         current_time = time.time()
+        self.pulse_phase += 0.2
         
-        # Animatie pulsatie
-        self.pulse_phase += 0.15
-        
-        # LOGICĂ TIMER JUMPSCARE
+        # Calcul coordonate absolute cursor pentru verificari
+        if self.last_dims == (0,0): return
+        w, h = self.last_dims
+        cx_abs = int(cx_norm * w)
+        cy_abs = int(cy_norm * h)
+
+        # --- LOGICA STĂRI ---
+
+        # 1. JUMPSCARE -> WIN SCREEN
         if self.state == "JUMPSCARE":
-            total_jumpscare_time = self.TRANSIT_DURATION + 2.0 
-            if current_time - self.jumpscare_start_time > total_jumpscare_time:
-                self.state = "LOST"
-                self.end_time = current_time 
+            if current_time - self.jumpscare_start_time > (self.TRANSIT_DURATION + 2.0):
+                self.state = "WIN_SCREEN"
+                self.win_screen_start_time = current_time
             return
 
-        # LOGICĂ ECRANE FINALE
-        if self.state in ["WON", "LOST"]:
-            if current_time - self.end_time > 2.5: 
-                self.active = False
+        # 2. WIN SCREEN -> EXIT
+        if self.state == "WIN_SCREEN":
+            if current_time - self.win_screen_start_time > 4.0: # Sta 4 secunde
+                self.active = False # Iese in meniul principal
             return
+
+        # 3. GAME OVER POPUP (Interactiune cu butoane)
+        if self.state == "GAME_OVER_POPUP":
+            # Verificam coliziunea cu butoanele
+            hit_retry = self._is_point_in_rect((cx_abs, cy_abs), self.btn_retry_rect)
+            hit_menu = self._is_point_in_rect((cx_abs, cy_abs), self.btn_menu_rect)
+            
+            target_btn = "RETRY" if hit_retry else ("MENU" if hit_menu else None)
+            
+            if target_btn:
+                if self.hovered_button != target_btn:
+                    # Tocmai am intrat pe buton
+                    self.hovered_button = target_btn
+                    self.hover_start_time = current_time
+                else:
+                    # Suntem deja pe buton, verificam cat timp a trecut
+                    elapsed = current_time - self.hover_start_time
+                    if elapsed >= self.HOVER_THRESHOLD:
+                        # CLICK CONFIRMAT!
+                        if target_btn == "RETRY":
+                            self.reset()
+                        else:
+                            self.active = False # Back to menu
+            else:
+                self.hovered_button = None
+                self.hover_start_time = 0
+            
+            return
+
+    def _is_point_in_rect(self, point, rect):
+        px, py = point
+        rx, ry, rw, rh = rect
+        return rx < px < rx + rw and ry < py < ry + rh
 
     def _check_logic(self, w, h):
         cx = int(self.cursor_norm[0] * w)
@@ -106,170 +187,140 @@ class MazeGame:
         if self.state == "WAITING":
             if self.start_rect:
                 sx, sy, sw, sh = self.start_rect
-                # Verificam daca cursorul e in zona de start
                 if sx < cx < sx + sw and sy < cy < sy + sh:
                     self.state = "PLAYING"
-                    self.message = "Evita peretii! Ajungi la FINAL."
+                    self.message = "FUGI LA EXIT!"
                     self.msg_color = (0, 255, 255)
 
         elif self.state == "PLAYING":
-            # 1. VERIFICĂM FINALUL -> CAPCANA (JUMPSCARE)
+            # Verificam EXIT (WIN)
             if self.end_rect:
                 ex, ey, ew, eh = self.end_rect
                 if ex < cx < ex + ew and ey < cy < ey + eh:
                     self.state = "JUMPSCARE"
                     self.jumpscare_start_time = time.time()
-                    self.message = "AI REUSIT...?"
+                    self.message = "PRINS...?"
                     self.msg_color = (0, 0, 255)
                     return
 
-            # 2. VERIFICĂM PEREȚII -> PIERZI NORMAL
-            # Optimizare: Verificam doar peretii din apropierea cursorului ar fi ideal,
-            # dar la numarul mic de pereti, iteratia completa e ok.
+            # Verificam PERETI (FAIL)
             for (wx, wy, ww, wh) in self.walls:
                 if wx < cx < wx + ww and wy < cy < wy + wh:
-                    self.state = "LOST"
-                    self.message = "SYSTEM FAILURE: Ai atins peretele!"
+                    self.state = "GAME_OVER_POPUP"
+                    self.message = "AI LOVIT ZIDUL!"
                     self.msg_color = (0, 0, 255)
-                    self.end_time = time.time()
                     return
-
-    def _draw_tech_grid(self, frame, w, h):
-        """Deseneaza un grid subtil pe fundal."""
-        step = 50
-        color = (30, 30, 40) # Gri foarte inchis
-        
-        # Linii verticale
-        for x in range(0, w, step):
-            cv2.line(frame, (x, 0), (x, h), color, 1)
-        
-        # Linii orizontale
-        for y in range(0, h, step):
-            cv2.line(frame, (0, y), (w, y), color, 1)
-
-    def _draw_neon_rect(self, frame, x, y, w, h, color_bgr, fill_alpha=0.3):
-        """Deseneaza un dreptunghi cu efect de neon (margine stralucitoare + interior transparent)."""
-        
-        # 1. Interior Transparent
-        overlay = frame.copy()
-        cv2.rectangle(overlay, (x, y), (x + w, y + h), color_bgr, -1)
-        cv2.addWeighted(overlay, fill_alpha, frame, 1 - fill_alpha, 0, frame)
-        
-        # 2. Margine Stralucitoare (Grosime 2)
-        cv2.rectangle(frame, (x, y), (x + w, y + h), color_bgr, 2)
-        
-        # 3. Colturi Accentuate (Tech Look)
-        corner_len = min(10, w//3, h//3)
-        bright_color = tuple(min(255, c + 100) for c in color_bgr) # Culoare mai deschisa
-        
-        # Colt Stanga-Sus
-        cv2.line(frame, (x, y), (x + corner_len, y), bright_color, 2)
-        cv2.line(frame, (x, y), (x, y + corner_len), bright_color, 2)
-        
-        # Colt Dreapta-Jos
-        cv2.line(frame, (x + w, y + h), (x + w - corner_len, y + h), bright_color, 2)
-        cv2.line(frame, (x + w, y + h), (x + w, y + h - corner_len), bright_color, 2)
 
     def draw(self, frame):
         h, w, _ = frame.shape
         
-        # --- DESENARE JUMPSCARE (Prioritar) ---
-        if self.state == "JUMPSCARE" and self.jumpscare_img is not None:
-            frame[:] = 0 # Blackout
-            
-            current_time = time.time()
-            elapsed = current_time - self.jumpscare_start_time
-            progress = min(elapsed / self.TRANSIT_DURATION, 1.0)
-            
-            # Zoom In Effect
-            scale_progress = progress**3 
-            current_scale = 0.1 + scale_progress * 0.9 
-            
-            target_w = int(w * current_scale)
-            target_h = int(h * current_scale)
-            
-            if target_w > 0 and target_h > 0:
-                jumpscare_resized = cv2.resize(self.jumpscare_img, (target_w, target_h))
-                x_offset = (w - target_w) // 2
-                y_offset = (h - target_h) // 2
-                
-                # Bounds check
-                y1, y2 = max(0, y_offset), min(h, y_offset + target_h)
-                x1, x2 = max(0, x_offset), min(w, x_offset + target_w)
-                
-                # Ajustam crop-ul daca iese din ecran (safe resize logic)
-                if x2 > x1 and y2 > y1:
-                    # Trebuie sa decupam si din imaginea sursa daca iese din ecran
-                    src_y1 = 0
-                    src_y2 = target_h
-                    if y_offset < 0: src_y1 = -y_offset
-                    if y_offset + target_h > h: src_y2 = target_h - (y_offset + target_h - h)
-                    
-                    src_x1 = 0
-                    src_x2 = target_w
-                    if x_offset < 0: src_x1 = -x_offset
-                    if x_offset + target_w > w: src_x2 = target_w - (x_offset + target_w - w)
-
-                    try:
-                        frame[y1:y2, x1:x2] = jumpscare_resized[src_y1:src_y2, src_x1:src_x2]
-                    except:
-                        pass # Safety fallback
-            return frame
-        
-        # --- LOGICA STANDARD ---
+        # Init Resize
         if (w, h) != self.last_dims:
-            self._parse_level(w, h)
             self.last_dims = (w, h)
+            self._parse_level(w, h)
 
-        if self.active:
+        # --- 1. JUMPSCARE (Overlay total) ---
+        if self.state == "JUMPSCARE":
+            elapsed = time.time() - self.jumpscare_start_time
+            if elapsed < self.TRANSIT_DURATION:
+                # Zoom effect
+                scale = 0.1 + (elapsed / self.TRANSIT_DURATION) * 0.9
+                target_w, target_h = int(w * scale), int(h * scale)
+                if target_w > 0:
+                    small_jmp = cv2.resize(self.jumpscare_img, (target_w, target_h), interpolation=cv2.INTER_NEAREST)
+                    y_off = (h - target_h) // 2
+                    x_off = (w - target_w) // 2
+                    y1, y2 = max(0, y_off), min(h, y_off + target_h)
+                    x1, x2 = max(0, x_off), min(w, x_off + target_w)
+                    sy1 = max(0, -y_off)
+                    sy2 = sy1 + (y2 - y1)
+                    sx1 = max(0, -x_off)
+                    sx2 = sx1 + (x2 - x1)
+                    if (y2>y1) and (x2>x1):
+                        frame[y1:y2, x1:x2] = small_jmp[sy1:sy2, sx1:sx2]
+            else:
+                resized_full = cv2.resize(self.jumpscare_img, (w, h), interpolation=cv2.INTER_NEAREST)
+                frame[:] = resized_full
+            return frame
+
+        # --- 2. WIN SCREEN (Dupa Jumpscare) ---
+        if self.state == "WIN_SCREEN":
+            # Fundal Verde
+            frame[:] = (0, 50, 0) 
+            cv2.putText(frame, "AI CASTIGAT!", (w//2 - 150, h//2), cv2.FONT_HERSHEY_SIMPLEX, 1.5, (255, 255, 255), 3)
+            cv2.putText(frame, "Revenire meniu...", (w//2 - 100, h//2 + 50), cv2.FONT_HERSHEY_PLAIN, 1.2, (200, 200, 200), 1)
+            return frame
+
+        # --- 3. JOC NORMAL (Background + Wall Check) ---
+        if self.static_bg is not None:
+            np.copyto(frame, self.static_bg)
+        else:
+            frame[:] = (15, 15, 20)
+
+        # Logic check daca jucam
+        if self.active and self.state not in ["GAME_OVER_POPUP"]:
             self._check_logic(w, h)
-        
-        # 1. Fundal Dark Tech
-        cv2.rectangle(frame, (0,0), (w,h), (15, 15, 20), -1) # Dark Navy/Black
-        self._draw_tech_grid(frame, w, h)
-        
-        # 2. Pereți (Cyan Neon Style)
-        wall_color = (255, 200, 0) # Cyan in BGR
-        for (wx, wy, ww, wh) in self.walls:
-            self._draw_neon_rect(frame, wx, wy, ww, wh, wall_color, fill_alpha=0.2)
-            
-        # 3. Start (Verde Pulsant)
+
+        # Desenare Start/Exit
         if self.start_rect:
             sx, sy, sw, sh = self.start_rect
-            # Pulsatie pe canalul verde
-            pulse = (math.sin(self.pulse_phase) + 1) / 2 # 0.0 -> 1.0
-            green_val = int(150 + 105 * pulse)
-            
-            self._draw_neon_rect(frame, sx, sy, sw, sh, (0, green_val, 0), fill_alpha=0.4)
-            
-            # Text centrat
-            text = "START"
-            font = cv2.FONT_HERSHEY_SIMPLEX
-            ts = cv2.getTextSize(text, font, 0.6, 2)[0]
-            cv2.putText(frame, text, (sx + (sw-ts[0])//2, sy + (sh+ts[1])//2), 
-                       font, 0.6, (255, 255, 255), 2)
+            pulse = (math.sin(self.pulse_phase) + 1) / 2
+            col_val = int(100 + 155 * pulse)
+            cv2.rectangle(frame, (sx, sy), (sx+sw, sy+sh), (0, col_val, 0), 2)
+            cv2.putText(frame, "START", (sx+5, sy+30), cv2.FONT_HERSHEY_PLAIN, 1.2, (255,255,255), 1)
         
-        # 4. Final (Roșu/Mov Alertă)
         if self.end_rect:
             ex, ey, ew, eh = self.end_rect
-            # Clipire alerta
-            is_alert = int(time.time() * 5) % 2 == 0
-            end_color = (0, 0, 255) if is_alert else (50, 0, 150) # Rosu <-> Mov Inchis
-            
-            self._draw_neon_rect(frame, ex, ey, ew, eh, end_color, fill_alpha=0.5)
-            
-            text = "EXIT"
-            ts = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.6, 2)[0]
-            cv2.putText(frame, text, (ex + (ew-ts[0])//2, ey + (eh+ts[1])//2), 
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 255), 2)
+            cv2.rectangle(frame, (ex, ey), (ex+ew, ey+eh), (0, 0, 255), 2)
+            cv2.putText(frame, "EXIT", (ex+5, ey+30), cv2.FONT_HERSHEY_PLAIN, 1.2, (255,255,255), 1)
 
-        # 5. Mesaje HUD (Stil Terminal)
-        # Bara neagra jos
-        cv2.rectangle(frame, (0, h-50), (w, h), (0,0,0), -1)
-        cv2.line(frame, (0, h-50), (w, h-50), (0, 255, 255), 1) # Linie galbena sus
-        
-        # Text mesaj
-        cv2.putText(frame, f">> {self.message}", (30, h - 15), 
-                   cv2.FONT_HERSHEY_SIMPLEX, 0.7, self.msg_color, 2, cv2.LINE_AA)
+        # --- 4. POPUP FAIL (Overlay) ---
+        if self.state == "GAME_OVER_POPUP":
+            # Overlay intunecat (Simulat simplu prin dreptunghi solid semi-opac doar in zona centrala pentru viteza)
+            # Sau pur si simplu un panou opac
+            
+            panel_w, panel_h = 500, 300
+            px, py = (w - panel_w)//2, (h - panel_h)//2
+            
+            # Panou Fundal
+            cv2.rectangle(frame, (px, py), (px+panel_w, py+panel_h), (20, 20, 20), -1)
+            cv2.rectangle(frame, (px, py), (px+panel_w, py+panel_h), (0, 0, 255), 2) # Contur Rosu
+            
+            # Text FAIL
+            cv2.putText(frame, "SYSTEM FAILURE", (px + 100, py + 60), cv2.FONT_HERSHEY_SIMPLEX, 1.2, (0, 0, 255), 2)
+            
+            # Functie desenare buton
+            def draw_btn(rect, text, btn_id):
+                bx, by, bw, bh = rect
+                is_hovered = (self.hovered_button == btn_id)
+                
+                # Culoare buton
+                bg_col = (50, 50, 50) if not is_hovered else (100, 100, 100)
+                border_col = (200, 200, 200) if not is_hovered else (0, 255, 0)
+                
+                cv2.rectangle(frame, (bx, by), (bx+bw, by+bh), bg_col, -1)
+                cv2.rectangle(frame, (bx, by), (bx+bw, by+bh), border_col, 2)
+                
+                # Bara de progres hover
+                if is_hovered:
+                    elapsed = time.time() - self.hover_start_time
+                    prog = min(elapsed / self.HOVER_THRESHOLD, 1.0)
+                    fill_w = int(bw * prog)
+                    cv2.rectangle(frame, (bx, by+bh-5), (bx+fill_w, by+bh), (0, 255, 0), -1)
+
+                # Text
+                text_size = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, 0.7, 2)[0]
+                tx = bx + (bw - text_size[0]) // 2
+                ty = by + (bh + text_size[1]) // 2
+                cv2.putText(frame, text, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 255, 255), 2)
+
+            draw_btn(self.btn_retry_rect, "MAI INCEARCA", "RETRY")
+            draw_btn(self.btn_menu_rect, "MENIU", "MENU")
+
+        # Mesaj HUD (doar daca nu e popup)
+        else:
+            cv2.rectangle(frame, (0, h-40), (w, h), (0,0,0), -1)
+            cv2.putText(frame, f">> {self.message}", (20, h - 12), 
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, self.msg_color, 1, cv2.LINE_AA)
 
         return frame
