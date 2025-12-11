@@ -3,7 +3,7 @@ import time
 import numpy as np
 import math
 import os
-import random # Imported for random animation start times
+import random
 
 class MenuController:
     def __init__(self):
@@ -23,23 +23,39 @@ class MenuController:
 
         # --- ANIMATION SETUP ---
         # Generate a random "phase" (0 to 2pi) for each button.
-        # This ensures they don't all bob up and down at the exact same time.
         self.anim_offsets = {k: random.uniform(0, 6.28) for k in self.layout.keys()}
 
         # --- ASSET LOADING ---
         current_dir = os.path.dirname(os.path.abspath(__file__))
         project_root = os.path.abspath(os.path.join(current_dir, "../../../"))
-        sprite_path = os.path.join(project_root, "assets", "images", "pixel_bubble.png")
+        assets_dir = os.path.join(project_root, "assets", "images")
         
-        # Load with Alpha Channel (Transparency)
+        # 1. Load Bubble Sprite
+        sprite_path = os.path.join(assets_dir, "pixel_bubble.png")
         self.bubble_sprite = cv2.imread(sprite_path, cv2.IMREAD_UNCHANGED)
         
-        self.asset_loaded = True
         if self.bubble_sprite is None:
             print(f"ERROR: Could not load image at {sprite_path}")
-            self.asset_loaded = False
             self.bubble_sprite = np.zeros((100, 100, 4), dtype=np.uint8)
             cv2.circle(self.bubble_sprite, (50,50), 45, (50, 50, 50, 255), -1)
+
+        # 2. Load QR/Site Images (ACIEE & Polestar)
+        self.img_aciee = self._load_and_resize(os.path.join(assets_dir, "site_aciee.png"), target_width=150)
+        self.img_polestar = self._load_and_resize(os.path.join(assets_dir, "site_polestar.png"), target_width=150)
+
+    def _load_and_resize(self, path, target_width):
+        """Helper pentru a încărca și redimensiona o imagine păstrând aspect ratio."""
+        if os.path.exists(path):
+            img = cv2.imread(path, cv2.IMREAD_UNCHANGED)
+            if img is not None:
+                h, w = img.shape[:2]
+                scale = target_width / w
+                return cv2.resize(img, (target_width, int(h * scale)))
+            else:
+                print(f"WARN: Imaginea {path} nu a putut fi citita (format invalid?).")
+        else:
+            print(f"WARN: Imaginea {path} nu exista.")
+        return None
 
     def get_layout(self):
         return self.layout
@@ -79,11 +95,12 @@ class MenuController:
 
     def overlay_transparent(self, background, overlay, x, y):
         bg_h, bg_w, _ = background.shape
-        ov_h, ov_w, ov_c = overlay.shape
+        ov_h, ov_w = overlay.shape[:2]
 
         if x >= bg_w or y >= bg_h or x + ov_w < 0 or y + ov_h < 0: 
             return background
 
+        # Calculate intersection
         ov_x_start = max(0, x)
         ov_y_start = max(0, y)
         bg_x_start = max(0, x)
@@ -97,10 +114,11 @@ class MenuController:
         roi_w = bg_x_end - bg_x_start
         roi_h = bg_y_end - bg_y_start
         
-        if roi_w <= 0 or roi_h <=0: return background
+        if roi_w <= 0 or roi_h <= 0: return background
 
         roi = background[bg_y_start:bg_y_end, bg_x_start:bg_x_end]
         
+        # Crop overlay to match ROI
         ov_crop_x_start = bg_x_start - x
         ov_crop_y_start = bg_y_start - y
         overlay_crop = overlay[ov_crop_y_start:ov_crop_y_start+roi_h, ov_crop_x_start:ov_crop_x_start+roi_w]
@@ -122,38 +140,70 @@ class MenuController:
         h, w, _ = frame.shape
         current_time = time.time()
 
-        # Draw Buttons
+        # ---------------------------------------------------------
+        # 1. DESENARE QR / IMAGINI COLTURI
+        # ---------------------------------------------------------
+        margin = 40
+        
+        # --- Colț Stânga Jos: ACIEE ---
+        if self.img_aciee is not None:
+            ih, iw = self.img_aciee.shape[:2]
+            x_pos = margin
+            y_pos = h - ih - margin
+            
+            # Text deasupra
+            text = "Site-ul facultatii"
+            font_scale = 0.7
+            ts = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 2)[0]
+            # Centram textul fata de imagine
+            tx = x_pos + (iw - ts[0]) // 2
+            ty = y_pos - 15
+            
+            cv2.putText(frame, text, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), 2)
+            frame = self.overlay_transparent(frame, self.img_aciee, x_pos, y_pos)
+
+        # --- Colț Dreapta Jos: POLESTAR ---
+        if self.img_polestar is not None:
+            ih, iw = self.img_polestar.shape[:2]
+            x_pos = w - iw - margin
+            y_pos = h - ih - margin
+            
+            # Text deasupra
+            text = "Site-ul nostru"
+            font_scale = 0.7
+            ts = cv2.getTextSize(text, cv2.FONT_HERSHEY_SIMPLEX, font_scale, 2)[0]
+            # Centram textul fata de imagine
+            tx = x_pos + (iw - ts[0]) // 2
+            ty = y_pos - 15
+            
+            cv2.putText(frame, text, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (255, 255, 255), 2)
+            frame = self.overlay_transparent(frame, self.img_polestar, x_pos, y_pos)
+
+        # ---------------------------------------------------------
+        # 2. DESENARE BUTOANE MENIU (BULE)
+        # ---------------------------------------------------------
         for name, (cx_norm, cy_norm, r_norm) in self.layout.items():
             
             is_hovered = (self.state["hovered"] == name)
             
             # --- ANIMATION MATH ---
             # 1. Floating Effect (Idle)
-            # Offset Y by a Sine wave. 
-            # Amplitude = 15 pixels (height of float)
-            # Speed = 2.5
             float_offset_y = 0
             scale_factor = 1.0
 
             if not is_hovered:
-                # Normal floating when not touched
                 float_offset_y = math.sin(current_time * 2.5 + self.anim_offsets[name]) * 15
             else:
-                # 2. Pulsing Effect (Hover)
-                # When hovered, stop floating and pulse size instead
-                # Pulsing between 1.05x and 1.15x size
                 scale_factor = 1.1 + 0.05 * math.sin(current_time * 8) 
 
             # Calculate actual positions
             center_x = int(cx_norm * w)
-            center_y = int(cy_norm * h + float_offset_y) # Apply the float
+            center_y = int(cy_norm * h + float_offset_y) 
             
-            # Size calculations with Scale Factor
             target_diameter = int(r_norm * w * 2 * scale_factor)
             radius_px = target_diameter // 2
             
             # Resize sprite
-            # Use INTER_NEAREST to keep that crisp pixel art look
             resized_bubble = cv2.resize(self.bubble_sprite, (target_diameter, target_diameter), interpolation=cv2.INTER_NEAREST)
             
             top_left_x = center_x - radius_px
@@ -166,22 +216,21 @@ class MenuController:
             if is_hovered and self.state["progress"] > 0:
                 thickness = 8 
                 angle = 360 * self.state["progress"]
-                # Ring also follows the scale and float
                 cv2.ellipse(frame, (center_x, center_y), (radius_px + thickness//2, radius_px + thickness//2),
                             -90, 0, angle, (255, 255, 0), thickness, lineType=cv2.LINE_4)
 
             # Draw Text
-            font_scale = 1.0 * scale_factor # Text scales with bubble
+            font_scale = 1.0 * scale_factor 
             thickness = 2
             text_size = cv2.getTextSize(name, cv2.FONT_HERSHEY_SIMPLEX, font_scale, thickness)[0]
             tx = center_x - text_size[0] // 2
             ty = center_y + text_size[1] // 2
             
-            # Outline (Black)
-            cv2.putText(frame, name, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0,0,0), thickness+3, lineType=cv2.LINE_4)
-            # Fill (White/Cyan)
+            # Outline & Fill
             text_color = (255, 255, 255)
             if is_hovered: text_color = (200, 255, 255) 
+            
+            cv2.putText(frame, name, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, font_scale, (0,0,0), thickness+3, lineType=cv2.LINE_4)
             cv2.putText(frame, name, (tx, ty), cv2.FONT_HERSHEY_SIMPLEX, font_scale, text_color, thickness, lineType=cv2.LINE_4)
     
         return frame

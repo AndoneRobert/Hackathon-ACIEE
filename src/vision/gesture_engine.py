@@ -23,7 +23,7 @@ class GestureEngine:
         
         # --- OPTIMIZARE 1: Smoothing mai mic pentru raspuns rapid ---
         # 0.5 era prea lent (lag). 0.75 urmareste mana mai fidel.
-        self.smoothing_factor = 0.75
+        self.smoothing_factor = 0.4
         
         # Swipe detection variables
         self.hand_positions = []
