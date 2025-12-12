@@ -38,6 +38,7 @@ def main():
             h_logo, w_logo = temp_img.shape[:2]
             aspect = h_logo / w_logo
             logo_img = cv2.resize(temp_img, (target_width, int(target_width * aspect)))
+            print(f"SUCCESS: Logo loaded from {logo_path}")
 
     # 3. INITIALIZE COMPONENTS
     engine = GestureEngine()
@@ -62,16 +63,12 @@ def main():
         # --- GESTURE PROCESSING ---
         gesture_data = engine.process_frame(raw_frame)
         
-        # Check face detection
+        # FIX: Check if a face is present using the existing saver instance
         is_face_present = saver.is_face_present(display_frame) 
 
         # Reset timer if EITHER hand is detected OR face is detected
         if gesture_data["cursor_detected"] or is_face_present:
             last_activity_time = time.time()
-
-        # Coordonate (pot fi None daca nu e mana)
-        gx = gesture_data["x"] if gesture_data["cursor_detected"] else None
-        gy = gesture_data["y"] if gesture_data["cursor_detected"] else None
 
         # --- STATE MACHINE ---
         
@@ -81,6 +78,7 @@ def main():
             if status == "WAKE_UP":
                 current_state = STATE_MENU
                 last_activity_time = time.time()
+            
             display_frame = saver.draw(display_frame, logo_img)
 
         # === B. MAIN MENU ===
@@ -89,30 +87,31 @@ def main():
                 current_state = STATE_SAVER
 
             if gesture_data["cursor_detected"]:
-                selection = menu.update(gx, gy)
+                selection = menu.update(gesture_data["x"], gesture_data["y"])
                 
                 if selection == "INFO":
                     current_state = STATE_INFO
                     info = InfoHub() # Reset state
-                elif selection == "JOCURI": 
+                elif selection == "PLAY":
                     current_state = STATE_GAME
-                    game = QuizGame() # Reset state  
-                elif selection == "HARTA":
-                    pass # Placeholder
+                    game = QuizGame() # Reset state
+                elif selection == "MAP":
+                    print("Map Selected (Placeholder)")
             
             display_frame = menu.draw(display_frame)
 
-        # === C. GAME HUB (MODIFICAT: Ruleaza update si fara mana) ===
+        # === C. QUIZ GAME ===
         elif current_state == STATE_GAME:
             if time.time() - last_activity_time > IDLE_TIMEOUT:
                 current_state = STATE_SAVER
 
-            # Trimitem coordonatele (chiar daca sunt None) catre joc
-            # Jocul Maze are nevoie de apel continuu pentru a rula timerele
-            should_exit = game.update(gx, gy)
-            
-            if should_exit:
-                current_state = STATE_MENU
+            if gesture_data["cursor_detected"]:
+                # --- MODIFICARE IMPORTANTA ---
+                # Capturam semnalul de iesire ("True") din joc
+                should_exit = game.update(gesture_data["x"], gesture_data["y"])
+                
+                if should_exit:
+                    current_state = STATE_MENU
             
             display_frame = game.draw(display_frame)
 
@@ -121,8 +120,9 @@ def main():
             if time.time() - last_activity_time > IDLE_TIMEOUT:
                 current_state = STATE_SAVER
 
+            # Update accepts gesture for swiping
             if gesture_data["cursor_detected"] or gesture_data["gesture"]:
-                res = info.update(gx, gy, gesture_data["gesture"])
+                res = info.update(gesture_data["x"], gesture_data["y"], gesture_data["gesture"])
                 if res == "BACK_TO_MENU":
                     current_state = STATE_MENU
             
@@ -130,7 +130,7 @@ def main():
 
         # --- DRAW GLOBAL CURSOR ---
         if current_state != STATE_SAVER and gesture_data["cursor_detected"]:
-            cx, cy = int(gx * w), int(gy * h)
+            cx, cy = int(gesture_data["x"] * w), int(gesture_data["y"] * h)
             cv2.circle(display_frame, (cx, cy), 15, (0, 255, 255), 2)
             cv2.circle(display_frame, (cx, cy), 4, (255, 255, 255), -1)
 
